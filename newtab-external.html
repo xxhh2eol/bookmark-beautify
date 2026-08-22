@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>收藏夹美化</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+        <div class="topbar-left">
+      <div class="brand">
+        <span class="brand-badge">🔖</span>
+        收藏夹美化
+      </div>
+      <div class="search-box">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.2-3.2" />
+        </svg>
+        <input id="searchInput" placeholder="搜索标题 / 网址 / 文件夹…" autocomplete="off" />
+      </div>
+        </div>
+        <div class="topbar-buttons">
+          <button class="top-btn hidden-btn" id="homeBtn" type="button">主页</button>
+          <button class="top-btn" id="allBtn" type="button">全部</button>
+          <button class="top-btn hidden-btn" id="refreshBtn" type="button">刷新</button>
+        </div>
+        <div class="topbar-right">
+      <div class="top-actions">
+        <select class="select" id="sortSelect">
+          <option value="default">默认排序</option>
+          <option value="name">名称正序</option>
+          <option value="name-desc">名称逆序</option>
+          <option value="recent">最近添加</option>
+        </select>
+          <button class="top-btn" id="settingsBtn" type="button" title="设置">⚙️</button>
+      </div>
+        </div>
+
+      <div class="settings-panel" id="settingsPanel" hidden>
+        <div class="settings-head">设置</div>
+        <label class="settings-item">
+          <input type="checkbox" id="hideDomainIcons" />
+          <span>隐藏左侧网址聚合图标</span>
+        </label>
+        <label class="settings-item">
+          <input type="checkbox" id="hideContentIcons" />
+          <span>隐藏右侧内容区网址图标</span>
+        </label>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel">
+        <div class="panel-body">
+          <div id="domainList"></div>
+        </div>
+      </aside>
+
+      <div class="resizer" id="resizeLeft" title="拖动调整宽度"></div>
+
+      <aside class="panel">
+        <div class="panel-body">
+          <div class="tree" id="folderTree"></div>
+        </div>
+      </aside>
+
+      <div class="resizer" id="resizeMid" title="拖动调整宽度"></div>
+
+      <section class="panel content-panel">
+        <div class="content-head"></div>
+        <div class="bookmark-list" id="bookmarkList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="contextMenu" class="context-menu" hidden></div>
+
+  <div id="appModal" class="app-modal" hidden>
+    <div class="app-modal-box">
+      <div class="app-modal-title" id="appModalTitle"></div>
+      <input id="appModalInput" class="app-modal-input" />
+      <div class="app-modal-actions">
+        <button id="appModalCancel" class="top-btn" type="button">取消</button>
+        <button id="appModalOk" class="top-btn" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="undoToast" class="undo-toast" hidden>
+    <span id="undoText">已删除</span>
+    <button id="undoBtn" class="top-btn" type="button">撤销</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

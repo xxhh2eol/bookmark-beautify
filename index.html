@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="mode2">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>书签收藏夹管理</title>
+  <style>
+    :root {
+      --bg: #f4f6fa;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #e5e9f2;
+      --border-strong: #d3dae7;
+      --text: #1f2733;
+      --muted: #6b7688;
+      --accent: #2563eb;
+      --accent-soft: #eaf1ff;
+      --accent-strong: #1d4ed8;
+      --danger: #dc2626;
+      --radius: 12px;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
+      --shadow-hover: 0 8px 24px rgba(31, 40, 60, 0.12);
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 16px 16px;
+      gap: 12px;
+    }
+
+    /* 顶栏 */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-height: 60px;
+      padding: 10px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      white-space: nowrap;
+    }
+
+    .brand-badge {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+    }
+
+    .search-box {
+      flex: 1;
+      max-width: 640px;
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 9px 38px 9px 38px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      outline: none;
+      font-size: 14px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .search-box input::placeholder { color: var(--muted); }
+    .search-box input:focus {
+      border-color: var(--accent);
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+    }
+
+    .search-box .search-icon {
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    .select {
+      appearance: none;
+      padding: 7px 30px 7px 12px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+      background-size: 5px 5px;
+      background-repeat: no-repeat;
+    }
+
+    .pill-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .pill-btn:hover { color: var(--text); border-color: var(--border-strong); }
+
+    /* 三栏主体 */
+    .workspace {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      gap: 0;
+      gap: 12px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: var(--text);
+    }
+
+    .panel-title::before {
+      content: "";
+      width: 3px;
+      height: 14px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    .count-badge {
+      display: inline-grid;
+      place-items: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-strong) transparent;
+    }
+
+    .panel-body::-webkit-scrollbar { width: 7px; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+    /* 左侧：网址聚合 */
+    .domain-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 9px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      margin-bottom: 1px;
+    }
+
+    .domain-item:hover { background: var(--surface-2); }
+    .domain-item.active {
+      background: var(--accent-soft);
+      border-color: #bcd3ff;
+    }
+
+    .domain-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .domain-info { min-width: 0; flex: 1; }
+    .domain-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .domain-sub {
+      font-size: 11px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .domain-count {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface-2);
+      border-radius: 999px;
+      padding: 2px 8px;
+      flex-shrink: 0;
+    }
+
+    .section-divider { margin: 9px 6px; height: 1px; background: var(--border); }
+
+    /* 中间：收藏夹 */
+    .tree { list-style: none; font-size: 13.5px; }
+    .tree-root { padding: 2px 0; }
+    .tree-item { margin: 1px 0; }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+
+    .tree-row:hover { background: var(--surface-2); }
+    .tree-row.active {
+      background: var(--accent-soft);
+      border-color: #bcd3ff;
+    }
+
+    .tree-arrow {
+      width: 15px;
+      height: 15px;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      color: var(--muted);
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .tree-row.expanded .tree-arrow { transform: rotate(90deg); }
+
+    .tree-emoji { font-size: 14px; flex-shrink: 0; }
+    .tree-label {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tree-count {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface-2);
+      border-radius: 999px;
+      padding: 1px 7px;
+      flex-shrink: 0;
+    }
+
+    .tree-children {
+      list-style: none;
+      padding-left: 20px;
+      position: relative;
+      display: none;
+    }
+    .tree-children.open { display: block; }
+    .tree-children::before {
+      content: "";
+      position: absolute;
+      left: 10px;
+      top: 3px;
+      bottom: 6px;
+      width: 1px;
+      background: var(--border);
+    }
+
+    /* 右侧：收藏网址 */
+    .content-panel { display: flex; flex-direction: column; }
+
+    .content-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .content-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .content-title h2 {
+      font-size: 16px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .content-meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+
+    .view-tabs {
+      margin-left: auto;
+      display: flex;
+      gap: 2px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 3px;
+    }
+
+    .view-tab {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 5px 12px;
+      font-size: 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .view-tab.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .bookmark-grid {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+      align-content: start;
+    }
+    .bookmark-grid.list-view { grid-template-columns: 1fr; gap: 8px; }
+
+    .bookmark-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 118px;
+      cursor: pointer;
+      transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .bookmark-card:hover {
+      transform: translateY(-3px);
+      border-color: #bcd3ff;
+      box-shadow: var(--shadow-hover);
+    }
+
+    .bookmark-top { display: flex; align-items: flex-start; gap: 10px; }
+    .favicon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .bookmark-title {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .bookmark-url {
+      font-size: 11.5px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bookmark-foot {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .folder-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+      font-size: 11px;
+      color: var(--accent-strong);
+      background: var(--accent-soft);
+      border-radius: 999px;
+      padding: 2px 9px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .list-view .bookmark-card {
+      flex-direction: row;
+      align-items: center;
+      min-height: 58px;
+      gap: 12px;
+      padding: 10px 14px;
+    }
+    .list-view .bookmark-top { flex: 1; min-width: 0; }
+    .list-view .bookmark-foot { margin-top: 0; flex-shrink: 0; }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: var(--muted);
+      padding: 70px 20px;
+    }
+    .empty-state .big-emoji { font-size: 42px; display: block; margin-bottom: 12px; }
+
+    @media (max-width: 1120px) {
+      .workspace { grid-template-columns: 220px 248px 1fr; }
+    }
+
+    @media (max-width: 920px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+      .workspace { grid-template-columns: 1fr; }
+      .panel { max-height: 380px; }
+      .content-panel { max-height: none; }
+      .topbar { flex-wrap: wrap; }
+      .search-box { order: 5; flex-basis: 100%; max-width: none; }
+    }
+
+      /* ===== 更新：拖拽/紧凑字体/双模式/去掉卡片 ===== */
+      .workspace { display: flex !important; gap: 0 !important; }
+
+      .workspace aside.panel {
+        flex: 0 0 auto;
+        min-width: 12.5%;
+        max-width: 25%;
+      }
+
+      .workspace aside.panel:nth-of-type(1) { width: 250px; }
+      .workspace aside.panel:nth-of-type(2) { width: 286px; }
+
+      .bookmark-grid {
+        display: block !important;
+        grid-template-columns: none !important;
+        gap: 8px !important;
+        padding: 12px;
+      }
+      .view-tabs { display: none !important; }
+
+      .bookmark-card {
+        flex-direction: row !important;
+        align-items: center;
+        min-height: 0;
+        gap: 12px;
+        padding: 9px 12px;
+        border-radius: 9px;
+      }
+
+      .bookmark-card .bookmark-top {
+        flex: 1;
+        min-width: 0;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .bookmark-card .bookmark-foot {
+        margin-top: 0 !important;
+        flex-shrink: 0;
+      }
+
+      .bookmark-card .favicon {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .bookmark-card .bookmark-title {
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .bookmark-card .bookmark-url {
+        font-size: 11px;
+        line-height: 1.25;
+      }
+
+      /* 左侧网址聚合：更紧凑 */
+      .domain-item {
+        padding: 4px 6px !important;
+        gap: 7px !important;
+        border-radius: 7px;
+        line-height: 1.2;
+      }
+
+      .domain-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        font-size: 11px;
+      }
+
+      .domain-name { font-size: 12px !important; line-height: 1.2; }
+      .domain-sub { font-size: 10px !important; line-height: 1.15; }
+      .domain-count { font-size: 10px !important; padding: 1px 6px; line-height: 1.2; }
+
+      /* 中间收藏夹：更紧凑 */
+      .tree { font-size: 12px !important; line-height: 1.2; }
+      .tree-row {
+        padding: 3px 6px !important;
+        gap: 6px;
+        border-radius: 6px;
+        line-height: 1.2;
+      }
+
+      .tree-arrow { width: 12px; height: 12px; font-size: 8px; }
+      .tree-emoji { font-size: 12px; }
+      .tree-label { font-size: 12px; line-height: 1.2; }
+      .tree-count { font-size: 10px !important; padding: 1px 6px; line-height: 1.2; }
+      .tree-children { padding-left: 16px; }
+
+      /* ===== 模式一：纯白无内容区背景、三块无间隔 ===== */
+      html[data-mode="mode1"] body { background: #ffffff; }
+
+      html[data-mode="mode1"] .topbar {
+        background: #ffffff;
+        border: none;
+        border-bottom: 1px solid #e8ebf0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      html[data-mode="mode1"] .panel {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      html[data-mode="mode1"] .workspace { gap: 0 !important; }
+      html[data-mode="mode1"] .resizer { width: 3px; }
+
+      html[data-mode="mode1"] .domain-item:hover,
+      html[data-mode="mode1"] .tree-row:hover {
+        background: #f4f6fa;
+      }
+
+      html[data-mode="mode1"] .domain-item.active,
+      html[data-mode="mode1"] .tree-row.active {
+        background: #eaf1ff;
+        border-color: #d5e3ff;
+      }
+
+      html[data-mode="mode1"] .bookmark-card {
+        background: #ffffff;
+        border: 1px solid #e8ebf0;
+        box-shadow: none;
+      }
+
+      html[data-mode="mode1"] .bookmark-card:hover {
+        border-color: #bcd3ff;
+      }
+
+      html[data-mode="mode1"] .content-head,
+      html[data-mode="mode1"] .panel-head {
+        border-color: #e8ebf0;
+      }
+
+      @media (max-width: 920px) {
+        .workspace { display: block !important; }
+        .resizer { display: none !important; }
+        .workspace aside.panel,
+        .workspace .content-panel {
+          width: 100% !important;
+          min-width: 100% !important;
+          max-width: 100% !important;
+        }
+      }
+
+
+      /* ===== 最新调整：隐藏标题/去除全部项/紧凑顶栏/右侧铺满 ===== */
+      .workspace > aside.panel .panel-head,
+      #allDomainItem,
+      .workspace > aside.panel .section-divider {
+        display: none !important;
+      }
+
+      #modeToggle { display: none !important; }
+
+      .topbar {
+        min-height: 42px !important;
+        padding: 5px 12px !important;
+        gap: 10px !important;
+      }
+
+      .brand {
+        gap: 5px !important;
+        font-size: 12px !important;
+      }
+
+      .brand-badge {
+        width: 18px !important;
+        height: 18px !important;
+        border-radius: 5px !important;
+        font-size: 10px !important;
+      }
+
+      .search-box input {
+        padding: 4px 30px 4px 28px !important;
+        font-size: 12px !important;
+        border-radius: 8px !important;
+        min-height: 27px;
+      }
+
+      .search-box .search-icon {
+        left: 9px !important;
+        top: 50% !important;
+        width: 12px !important;
+        height: 12px !important;
+      }
+
+      .select {
+        padding: 4px 24px 4px 8px !important;
+        font-size: 12px !important;
+        border-radius: 7px !important;
+        min-height: 27px;
+      }
+
+      /* 网址栏只保留 图标 + 网址 + 数量 */
+      .domain-sub { display: none !important; }
+
+      /* 右侧内容区始终铺满剩余宽度 */
+      .content-panel {
+        flex: 1 1 auto !important;
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      .bookmark-grid {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      .empty-state {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge">🔖</span>
+        书签收藏夹管理
+      </div>
+      <div class="search-box">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.2-3.2" />
+        </svg>
+        <input id="searchInput" placeholder="搜索标题 / 网址 / 文件夹…" autocomplete="off" />
+      </div>
+      <div class="top-actions">
+        <select class="select" id="sortSelect">
+          <option value="default">默认排序</option>
+          <option value="name">名称正序</option>
+          <option value="name-desc">名称逆序</option>
+          <option value="recent">最近添加</option>
+        </select>
+        <button class="pill-btn" id="modeToggle">模式一</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <!-- 网址聚合 -->
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="panel-title">网址聚合</span>
+          <span class="count-badge" id="domainTotal">0</span>
+        </div>
+        <div class="panel-body">
+          <div class="domain-item" id="allDomainItem" data-domain="all">
+            <span class="domain-icon" style="background:linear-gradient(135deg,#2563eb,#38bdf8)">★</span>
+            <span class="domain-info">
+              <span class="domain-name">全部网址</span>
+              <span class="domain-sub">按收藏夹聚合</span>
+            </span>
+            <span class="domain-count" id="allCount">0</span>
+          </div>
+          <div class="section-divider"></div>
+          <div id="domainList"></div>
+        </div>
+      </aside>
+        <div class="resizer" id="resizeLeft" title="拖动调整宽度"></div>
+
+      <!-- 收藏夹 -->
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="panel-title">收藏夹</span>
+          <span class="count-badge" id="folderTotal">0</span>
+        </div>
+        <div class="panel-body">
+          <div class="tree" id="folderTree"></div>
+        </div>
+      </aside>
+        <div class="resizer" id="resizeMid" title="拖动调整宽度"></div>
+
+      <!-- 筛选结果 -->
+      <section class="panel content-panel">
+        <div class="content-head">
+          <div class="content-title">
+            <span style="font-size:18px" id="contentIcon">🌐</span>
+            <h2 id="contentTitle">全部收藏网址</h2>
+            <span class="content-meta" id="contentMeta"></span>
+          </div>
+          <div class="view-tabs">
+            <!-- 卡片模式已移除 -->
+            <button class="view-tab" data-view="list">列表</button>
+          </div>
+        </div>
+        <div class="bookmark-grid" id="bookmarkGrid"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // 模拟数据
+    const domainGroups = [
+      { key: 'github.com', name: 'GitHub', sub: '代码 · 开源 · 文档', color: '#8b5cf6', includes: ['github.com', 'gist.github.com'] },
+      { key: 'google.com', name: 'Google', sub: '搜索 · 邮箱 · 云盘', color: '#34a853', includes: ['google.com', 'drive.google.com', 'gmail.com'] },
+      { key: 'zhihu.com', name: '知乎', sub: '问答 · 专栏', color: '#0f7cff', includes: ['zhihu.com'] },
+      { key: 'bilibili.com', name: '哔哩哔哩', sub: '视频 · 直播 · 番剧', color: '#fb7299', includes: ['bilibili.com', 'search.bilibili.com'] },
+      { key: 'youtube.com', name: 'YouTube', sub: '视频 · 学习', color: '#ff5a5a', includes: ['youtube.com', 'music.youtube.com'] },
+      { key: 'juejin.cn', name: '掘金', sub: '前端 · 后端 · AI', color: '#1e80ff', includes: ['juejin.cn'] },
+      { key: 'mdn.mozilla.org', name: 'MDN', sub: 'Web 开发文档', color: '#4f8cff', includes: ['mdn.mozilla.org', 'developer.mozilla.org'] },
+      { key: 'react.dev', name: 'React', sub: '官方文档', color: '#61dafb', includes: ['react.dev'] },
+      { key: 'tailwindcss.com', name: 'Tailwind', sub: 'CSS 框架', color: '#38bdf8', includes: ['tailwindcss.com'] },
+      { key: 'vitejs.dev', name: 'Vite', sub: '前端构建', color: '#ffc734', includes: ['vitejs.dev'] },
+      { key: 'nodejs.cn', name: 'Node.js', sub: '服务端运行时', color: '#8cc84b', includes: ['nodejs.cn'] },
+      { key: 'figma.com', name: 'Figma', sub: '设计协作', color: '#ff7262', includes: ['figma.com'] },
+      { key: 'openai.com', name: 'OpenAI', sub: 'ChatGPT · API', color: '#10a37f', includes: ['openai.com', 'chat.openai.com', 'platform.openai.com'] },
+      { key: 'midjourney.com', name: 'Midjourney', sub: 'AI 图像生成', color: '#5b7cfa', includes: ['midjourney.com'] }
+    ];
+
+    const folderTree = [
+      { id: 'dev', name: '开发文档', emoji: '🛠️', children: [
+        { id: 'fe', name: '前端日常', emoji: '🌐' },
+        { id: 'backend', name: '后端服务', emoji: '⚙️' }
+      ]},
+      { id: 'ai', name: 'AI 工具', emoji: '🤖', children: [
+        { id: 'chatgpt', name: 'ChatGPT', emoji: '💬' },
+        { id: 'midjourney', name: 'Midjourney', emoji: '🎨' }
+      ]},
+      { id: 'design', name: '设计灵感', emoji: '🎨', children: [] },
+      { id: 'reading', name: '深度阅读', emoji: '📚', children: [
+        { id: 'techblog', name: '技术博客', emoji: '✍️' },
+        { id: 'product', name: '产品思考', emoji: '🧠' }
+      ]},
+      { id: 'tools', name: '常用工具', emoji: '🧰', children: [] },
+      { id: 'social', name: '社交媒体', emoji: '💬', children: [] }
+    ];
+
+    const bookmarks = [
+      { id: 1, title: 'GitHub - 全球最大开源社区', url: 'https://github.com', host: 'github.com', domain: 'github.com', folderId: 'dev', folderPath: '开发文档', tags: ['代码'] },
+      { id: 2, title: 'Gist - 代码片段分享', url: 'https://gist.github.com', host: 'gist.github.com', domain: 'github.com', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['片段'] },
+      { id: 3, title: 'MDN Web 文档', url: 'https://developer.mozilla.org/zh-CN/', host: 'developer.mozilla.org', domain: 'mdn.mozilla.org', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['文档'] },
+      { id: 4, title: 'Google Drive', url: 'https://drive.google.com', host: 'drive.google.com', domain: 'google.com', folderId: 'tools', folderPath: '常用工具', tags: ['云盘'] },
+      { id: 5, title: 'Gmail', url: 'https://gmail.com', host: 'gmail.com', domain: 'google.com', folderId: 'tools', folderPath: '常用工具', tags: ['邮箱'] },
+      { id: 6, title: '知乎 - 有问题就会有答案', url: 'https://www.zhihu.com', host: 'zhihu.com', domain: 'zhihu.com', folderId: 'reading', folderPath: '深度阅读', tags: ['问答'] },
+      { id: 7, title: '哔哩哔哩 - 干杯', url: 'https://www.bilibili.com', host: 'bilibili.com', domain: 'bilibili.com', folderId: 'social', folderPath: '社交媒体', tags: ['视频'] },
+      { id: 8, title: 'Bilibili 搜索 - 前端学习', url: 'https://search.bilibili.com/all?keyword=前端', host: 'search.bilibili.com', domain: 'bilibili.com', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['视频'] },
+      { id: 9, title: 'YouTube - 学习频道推荐', url: 'https://www.youtube.com', host: 'youtube.com', domain: 'youtube.com', folderId: 'reading', folderPath: '深度阅读', tags: ['视频'] },
+      { id: 10, title: '掘金 - 前端热搜', url: 'https://juejin.cn/frontend', host: 'juejin.cn', domain: 'juejin.cn', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['资讯'] },
+      { id: 11, title: 'Figma 社区', url: 'https://www.figma.com/community', host: 'figma.com', domain: 'figma.com', folderId: 'design', folderPath: '设计灵感', tags: ['设计'] },
+      { id: 12, title: 'ChatGPT', url: 'https://chat.openai.com', host: 'chat.openai.com', domain: 'openai.com', folderId: 'chatgpt', folderPath: 'AI 工具 / ChatGPT', tags: ['AI'] },
+      { id: 13, title: 'Midjourney', url: 'https://www.midjourney.com', host: 'midjourney.com', domain: 'midjourney.com', folderId: 'midjourney', folderPath: 'AI 工具 / Midjourney', tags: ['AI'] },
+      { id: 14, title: 'Tailwind CSS 中文文档', url: 'https://tailwindcss.com/docs', host: 'tailwindcss.com', domain: 'tailwindcss.com', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['CSS'] },
+      { id: 15, title: 'React 官方文档', url: 'https://react.dev', host: 'react.dev', domain: 'react.dev', folderId: 'fe', folderPath: '开发文档 / 前端日常', tags: ['框架'] },
+      { id: 16, title: '技术胖的博客', url: 'https://juejin.cn/user/123', host: 'juejin.cn', domain: 'juejin.cn', folderId: 'techblog', folderPath: '深度阅读 / 技术博客', tags: ['博客'] },
+      { id: 17, title: '产品沉思录', url: 'https://www.zhihu.com/column/pins', host: 'zhihu.com', domain: 'zhihu.com', folderId: 'product', folderPath: '深度阅读 / 产品思考', tags: ['产品'] },
+      { id: 18, title: 'Google 搜索', url: 'https://www.google.com', host: 'google.com', domain: 'google.com', folderId: 'tools', folderPath: '常用工具', tags: ['搜索'] },
+      { id: 19, title: 'Bilibili 番剧索引', url: 'https://www.bilibili.com/anime', host: 'bilibili.com', domain: 'bilibili.com', folderId: 'social', folderPath: '社交媒体', tags: ['番剧'] },
+      { id: 20, title: 'Vite 官方', url: 'https://vitejs.dev', host: 'vitejs.dev', domain: 'vitejs.dev', folderId: 'backend', folderPath: '开发文档 / 后端服务', tags: ['构建'] },
+      { id: 21, title: 'Node.js 中文网', url: 'https://nodejs.cn', host: 'nodejs.cn', domain: 'nodejs.cn', folderId: 'backend', folderPath: '开发文档 / 后端服务', tags: ['后端'] },
+      { id: 22, title: 'XD 设计资源', url: 'https://www.figma.com/community/file/123', host: 'figma.com', domain: 'figma.com', folderId: 'design', folderPath: '设计灵感', tags: ['资源'] },
+      { id: 23, title: 'YouTube Music', url: 'https://music.youtube.com', host: 'music.youtube.com', domain: 'youtube.com', folderId: 'social', folderPath: '社交媒体', tags: ['音乐'] },
+      { id: 24, title: 'OpenAI 文档', url: 'https://platform.openai.com/docs', host: 'platform.openai.com', domain: 'openai.com', folderId: 'ai', folderPath: 'AI 工具', tags: ['AI'] },
+      { id: 25, title: '掘金 - 后端文章', url: 'https://juejin.cn/backend', host: 'juejin.cn', domain: 'juejin.cn', folderId: 'backend', folderPath: '开发文档 / 后端服务', tags: ['后端'] }
+    ];
+
+    const state = { filterType: 'all', filterKey: 'all', search: '', view: 'list', sort: 'default' };
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+    function folderById(id) {
+      let found = null;
+      (function walk(list) {
+        list.forEach(f => {
+          if (f.id === id) { found = f; return; }
+          if (f.children) walk(f.children);
+        });
+      })(folderTree);
+      return found;
+    }
+
+    function collectFolderIds(folderId) {
+      const ids = [];
+      const walk = (f) => { ids.push(f.id); (f.children || []).forEach(walk); };
+      const root = folderById(folderId);
+      if (root) walk(root);
+      return ids;
+    }
+
+    function isMatch(b, filter) {
+      const q = state.search.trim().toLowerCase();
+      if (filter.type === 'domain') {
+        const g = domainGroups.find(d => d.key === filter.key);
+        const includes = g ? g.includes : [filter.key];
+        if (!includes.includes(b.domain)) return false;
+      } else if (filter.type === 'folder') {
+        const ids = collectFolderIds(filter.key);
+        if (!ids.includes(b.folderId)) return false;
+      }
+      if (q) {
+        const hay = [b.title, b.url, b.host, b.folderPath, ...b.tags].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }
+
+    function sorted(list) {
+      const arr = [...list];
+      switch (state.sort) {
+        case 'name': arr.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN')); break;
+        case 'name-desc': arr.sort((a, b) => b.title.localeCompare(a.title, 'zh-CN')); break;
+        case 'recent': arr.sort((a, b) => b.id - a.id); break;
+      }
+      return arr;
+    }
+
+    function shade(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.min(255, (n >> 16) + 30);
+      const g = Math.min(255, ((n >> 8) & 0xff) + 30);
+      const b = Math.min(255, (n & 0xff) + 30);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function renderDomains() {
+      $('#allCount').textContent = bookmarks.length;
+      $('#domainTotal').textContent = domainGroups.length + 1;
+      $('#allDomainItem').classList.toggle('active', state.filterType === 'all');
+
+      $('#domainList').innerHTML = domainGroups.map(g => {
+        const count = bookmarks.filter(b => g.includes.includes(b.domain)).length;
+        const active = state.filterType === 'domain' && state.filterKey === g.key;
+        return `<div class="domain-item ${active ? 'active' : ''}" data-domain="${g.key}">
+          <span class="domain-icon" style="background:${g.color}">${g.name[0]}</span>
+          <span class="domain-info">
+            <span class="domain-name">${g.key}</span>
+            <span class="domain-sub">${g.sub}</span>
+          </span>
+          <span class="domain-count">${count}</span>
+        </div>`;
+      }).join('');
+
+      $$('#domainList .domain-item').forEach(el => {
+        el.addEventListener('click', () => {
+          state.filterType = 'domain';
+          state.filterKey = el.dataset.domain;
+          renderDomains(); renderFolders(); renderContent();
+        });
+      });
+    }
+
+    function renderFolders() {
+      $('#folderTotal').textContent = folderTree.length;
+      const counts = new Map();
+      bookmarks.forEach(b => counts.set(b.folderId, (counts.get(b.folderId) || 0) + 1));
+
+      const renderTree = (items, deep) => items.map(f => {
+        const direct = counts.get(f.id) || 0;
+        const allInFolder = direct + f.children.reduce((sum, c) => sum + (counts.get(c.id) || 0), 0);
+        const expanded = deep < 1;
+        const active = state.filterType === 'folder' && state.filterKey === f.id;
+        return `<li class="tree-item">
+          <div class="tree-row ${active ? 'active' : ''} ${expanded ? 'expanded' : ''}" data-folder="${f.id}" style="${deep ? '' : 'font-weight:600'}">
+            ${f.children.length ? '<span class="tree-arrow">▶</span>' : '<span class="tree-arrow"></span>'}
+            <span class="tree-emoji">${f.emoji}</span>
+            <span class="tree-label">${f.name}</span>
+            <span class="tree-count">${allInFolder}</span>
+          </div>
+          ${f.children.length ? `<ul class="tree-children open">${renderTree(f.children, deep + 1)}</ul>` : ''}
+        </li>`;
+      }).join('');
+
+      $('#folderTree').innerHTML = renderTree(folderTree, 0);
+
+      $$('#folderTree .tree-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('.tree-arrow')) {
+            row.classList.toggle('expanded');
+            const children = row.nextElementSibling;
+            if (children) children.classList.toggle('open');
+            return;
+          }
+          state.filterType = 'folder';
+          state.filterKey = row.dataset.folder;
+          renderDomains(); renderFolders(); renderContent();
+        });
+      });
+    }
+
+    function renderContent() {
+      const filter = { type: state.filterType, key: state.filterKey };
+      let filtered = bookmarks.filter(b => isMatch(b, filter));
+      filtered = sorted(filtered);
+
+      let title = '全部收藏网址', icon = '🌐';
+      if (filter.type === 'domain') {
+        const g = domainGroups.find(d => d.key === filter.key);
+        title = g ? g.key : filter.key;
+        icon = g ? g.name[0] : '🌐';
+      } else if (filter.type === 'folder') {
+        const f = folderById(filter.key);
+        title = f ? f.name : '收藏夹';
+        icon = f ? f.emoji : '📁';
+      }
+      $('#contentIcon').textContent = icon;
+      $('#contentTitle').textContent = title;
+      $('#contentMeta').textContent = `${filtered.length} 个网址`;
+
+      const grid = $('#bookmarkGrid');
+      grid.className = 'bookmark-grid' + (state.view === 'list' ? ' list-view' : '');
+
+      if (!filtered.length) {
+        grid.innerHTML = `<div class="empty-state"><span class="big-emoji">🗂️</span>没有找到匹配的网址</div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(b => {
+        const fav = b.title.trim()[0] || '?';
+        const color = (domainGroups.find(g => g.key === b.domain) || { color: '#64748b' }).color;
+        const commonTop = `<span class="favicon" style="background:${color}">${fav}</span>`;
+        const commonFoot = `<span class="folder-chip">📁 ${b.folderPath}</span>`;
+        if (state.view === 'list') {
+          return `<a class="bookmark-card" href="${b.url}" target="_blank" rel="noopener">
+            ${commonTop}
+            <span class="bookmark-top">
+              <span>
+                <span class="bookmark-title">${b.title}</span>
+                <span class="bookmark-url">${b.url}</span>
+              </span>
+            </span>
+            <span class="bookmark-foot">${commonFoot}</span>
+          </a>`;
+        }
+        return `<a class="bookmark-card" href="${b.url}" target="_blank" rel="noopener">
+          <div class="bookmark-top">
+            ${commonTop}
+            <div style="min-width:0;flex:1">
+              <div class="bookmark-title">${b.title}</div>
+              <div class="bookmark-url">${b.url.replace(/^https?:\/\//, '')}</div>
+            </div>
+          </div>
+          <div class="bookmark-foot">${commonFoot}</div>
+        </a>`;
+      }).join('');
+    }
+
+    // 事件
+    $('#searchInput').addEventListener('input', (e) => { state.search = e.target.value; renderContent(); });
+    $('#sortSelect').addEventListener('change', (e) => { state.sort = e.target.value; renderContent(); });
+    $('#modeToggle').addEventListener('click', () => {
+      const root = document.documentElement;
+      const next = root.dataset.mode === 'mode1' ? 'mode2' : 'mode1';
+      root.dataset.mode = next;
+      $('#modeToggle').textContent = next === 'mode1' ? '模式二' : '模式一';
+    });
+    $('#allDomainItem').addEventListener('click', () => {
+      state.filterType = 'all'; state.filterKey = 'all';
+      renderDomains(); renderFolders(); renderContent();
+    });
+    $$('.view-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        state.view = tab.dataset.view;
+        $$('.view-tab').forEach(t => t.classList.toggle('active', t === tab));
+        renderContent();
+      });
+    });
+
+    // 左右两栏拖动调整宽度（最宽 25%，最窄 12.5%）
+    function enableResize(panel, resizer) {
+      let startX = 0;
+      let startPct = 0.2;
+      let workspaceWidth = 1;
+
+      resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const workspace = document.querySelector('.workspace');
+        workspaceWidth = workspace.clientWidth;
+        startPct = panel.getBoundingClientRect().width / workspaceWidth;
+        startX = e.clientX;
+        resizer.classList.add('dragging');
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp, { once: true });
+      });
+
+      function onMove(e) {
+        let pct = startPct + (e.clientX - startX) / workspaceWidth;
+        pct = Math.max(0.125, Math.min(0.25, pct));
+        panel.style.width = (pct * 100).toFixed(2) + '%';
+      }
+
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        resizer.classList.remove('dragging');
+      }
+    }
+
+    enableResize(
+      document.querySelector('.workspace aside.panel:nth-of-type(1)'),
+      document.getElementById('resizeLeft')
+    );
+    enableResize(
+      document.querySelector('.workspace aside.panel:nth-of-type(2)'),
+      document.getElementById('resizeMid')
+    );
+
+
+    // 初始渲染
+    renderDomains();
+    renderFolders();
+    renderContent();
+  </script>
+</body>
+</html>

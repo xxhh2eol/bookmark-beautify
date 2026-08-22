@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Node / build output (if any)
+node_modules/
+dist/
+release/
+
+# Archives (keep the repo clean; release zips go elsewhere)
+*.zip
+*.log
