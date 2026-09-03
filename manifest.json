@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "收藏夹美化",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "美化并管理 Chrome 收藏夹，按网址聚合和文件夹展示，支持拖拽排序与移动。",
   "permissions": ["bookmarks", "favicon", "storage", "tabs"],
   "action": {

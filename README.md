@@ -75,8 +75,10 @@ bookmark-beautify/
 ├─ background.js            # Service worker — opens the page when the toolbar icon is clicked
 ├─ newtab.html              # Legacy standalone demo (not referenced by the manifest)
 ├─ index.html               # Legacy static demo page (ignorable)
+├─ CONTRIBUTING.md          # Contributing guide
 ├─ README.md
-└─ LICENSE                  # MIT
+├─ LICENSE                  # MIT
+└─ .github/                 # Issue & PR templates
 ```
 
 ## Tech stack / 技术栈
@@ -86,8 +88,14 @@ bookmark-beautify/
   （无框架、无构建、无依赖；使用 `bookmarks`、`favicon`、`storage`、`tabs` 权限。）
 - **eTLD+1 domain aggregation** — a small suffix list handles multi-part public suffixes (e.g. `co.uk`, `com.cn`).
 
+## Contributing / 贡献
+
+Contributions are welcome — Bug reports, feature suggestions, and pull requests. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+欢迎参与贡献，无论是 Bug 反馈、功能建议还是代码提交，详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
 ## License / 许可
 
 [MIT](./LICENSE)
 
-Copyright (c) 2026 bookmark-beautify contributors
+Copyright (c) 2026 xxhh2eol

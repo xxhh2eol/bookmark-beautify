@@ -27,21 +27,79 @@ const suffixSet = new Set([
   'com.au','co.kr','com.br','com.mx','co.in','org.uk','net.uk','ac.cn'
 ]);
 
+function isLocalOrPrivateHost(host) {
+  const h = String(host || '').toLowerCase().replace(/^www\./i, '').replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h.endsWith('.localhost') || h === 'localhost.localdomain' || h.endsWith('.local')) return true;
+  if (h.includes(':')) {
+    return h === '::' || h === '::1' || h.startsWith('fe80:') || h.startsWith('fd') || h.startsWith('fc');
+  }
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return false;
+  const p = h.split('.').map(Number);
+  return p[0] === 127 || p[0] === 10
+    || (p[0] === 172 && p[1] >= 16 && p[1] <= 31)
+    || (p[0] === 192 && p[1] === 168)
+    || (p[0] === 169 && p[1] === 254);
+}
+
 function aggregateDomain(host) {
-  let h = host.replace(/^www\./i, '');
-  const parts = h.split('.');
+  if (isLocalOrPrivateHost(host)) return 'localhost';
+  let h = String(host || '').replace(/^www\./i, '').replace(/^\[|\]$/g, '');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(':')) return h;
+  const parts = h.split('.').filter(Boolean);
   if (parts.length <= 2) return h;
-  const last3 = parts.slice(-3).join('.');
-  if (suffixSet.has(last3)) return last3;
-  return parts.slice(-2).join('.');
+  const last2 = parts.slice(-2).join('.');
+  if (suffixSet.has(last2)) return parts.slice(-3).join('.');
+  return last2;
+}
+
+function hueOf(text) {
+  let hash = 0;
+  const s = String(text || '').toLowerCase();
+  for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash) + s.charCodeAt(i);
+  return Math.abs(hash) % 360;
 }
 
 function colorFor(text) {
-  let hash = 0;
-  const s = text.toLowerCase();
-  for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash) + s.charCodeAt(i);
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 65%, 54%)`;
+  return `hsl(${hueOf(text)}, 65%, 54%)`;
+}
+
+const COMPOUND_TLDS = ['com.cn','net.cn','org.cn','gov.cn','com.hk','co.uk','com.tw','co.jp','com.au','co.kr','com.br','com.mx','co.in','org.uk','net.uk','ac.cn'];
+
+function splitDomain(domain) {
+  const s = String(domain || '');
+  for (const sfx of COMPOUND_TLDS) {
+    if (s.length > sfx.length + 1 && s.endsWith('.' + sfx)) {
+      return { base: s.slice(0, s.length - sfx.length - 1), tld: '.' + sfx };
+    }
+  }
+  const idx = s.lastIndexOf('.');
+  if (idx > 0) return { base: s.slice(0, idx), tld: s.slice(idx) };
+  return { base: s, tld: '' };
+}
+
+function softBadge(hue) {
+  if (isDarkTheme()) return { bg: `hsl(${hue}, 40%, 26%)`, text: `hsl(${hue}, 70%, 80%)` };
+  return { bg: `hsl(${hue}, 55%, 92%)`, text: `hsl(${hue}, 50%, 38%)` };
+}
+
+function folderFill(hue) {
+  return isDarkTheme() ? `hsl(${hue}, 45%, 58%)` : `hsl(${hue}, 50%, 48%)`;
+}
+
+const FOLDER_GLYPH = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M3 6a2 2 0 0 1 2-2h4a2 2 0 0 1 1.41.59L12 6h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z" fill="#fff"/></svg>';
+
+function folderIcon(fc, cls) {
+  const bg = fc ? folderFill(fc.hue) : (isDarkTheme() ? '#323b4d' : '#94a3b8');
+  return `<span class="${cls}" style="background:${bg}">${FOLDER_GLYPH}</span>`;
+}
+
+function countFolders(folders) {
+  return folders.reduce((n, f) => n + 1 + countFolders(f.children), 0);
+}
+
+function isDarkTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark';
 }
 
 function folderColor(name) {
@@ -49,10 +107,21 @@ function folderColor(name) {
   const s = String(name || '');
   for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash) + s.charCodeAt(i);
   const hue = Math.abs(hash) % 360;
+  if (isDarkTheme()) {
+    return {
+      hue,
+      bg: `hsl(${hue}, 30%, 17%)`,
+      border: `hsl(${hue}, 34%, 32%)`,
+      text: `hsl(${hue}, 62%, 72%)`,
+      hover: `hsl(${hue}, 30%, 24%)`
+    };
+  }
   return {
+    hue,
     bg: `hsl(${hue}, 45%, 96%)`,
     border: `hsl(${hue}, 40%, 80%)`,
-    text: `hsl(${hue}, 40%, 45%)`
+    text: `hsl(${hue}, 40%, 45%)`,
+    hover: `hsl(${hue}, 45%, 93%)`
   };
 }
 
@@ -120,6 +189,36 @@ function collectBookmarks(nodes, parentPath) {
   return { items, folders };
 }
 
+// ===== 域名显示名称（人工改名） =====
+let customDomainNames = {};
+
+function customNameFor(domain) {
+  return customDomainNames[domain] || '';
+}
+
+async function saveCustomDomainNames() {
+  if (chrome.storage && chrome.storage.local) {
+    await new Promise(resolve => chrome.storage.local.set({ customDomainNames }, resolve));
+  }
+}
+
+function renameDomain(domain) {
+  const cur = customDomainNames[domain] || '';
+  showInputModal('修改显示名称（留空清除）', cur, (name) => {
+    const trimmed = (name || '').trim();
+    if (trimmed) customDomainNames[domain] = trimmed;
+    else delete customDomainNames[domain];
+    saveCustomDomainNames();
+    renderDomains();
+  });
+}
+
+function clearDomainName(domain) {
+  delete customDomainNames[domain];
+  saveCustomDomainNames();
+  renderDomains();
+}
+
 function computeDomainGroups(bookmarks) {
   const map = new Map();
   for (const b of bookmarks) {
@@ -180,14 +279,17 @@ async function loadChromeBookmarks() {
 
 async function loadSettings() {
   if (!chrome.storage || !chrome.storage.local) return;
-  const data = await new Promise(resolve => chrome.storage.local.get(['hideDomainIcons', 'hideContentIcons', 'hiddenFolders'], resolve));
+  const data = await new Promise(resolve => chrome.storage.local.get(['hideDomainIcons', 'hideContentIcons', 'hiddenFolders', 'darkMode', 'customDomainNames'], resolve));
   settings.hideDomainIcons = !!data.hideDomainIcons;
   settings.hideContentIcons = !!data.hideContentIcons;
   $('#hideDomainIcons').checked = settings.hideDomainIcons;
   $('#hideContentIcons').checked = settings.hideContentIcons;
   document.documentElement.classList.toggle('hide-domain-icons', settings.hideDomainIcons);
   document.documentElement.classList.toggle('hide-content-icons', settings.hideContentIcons);
+  document.documentElement.dataset.theme = data.darkMode ? 'dark' : 'light';
+  $('#darkMode').checked = !!data.darkMode;
   hiddenFolderIds = new Set(data.hiddenFolders || []);
+  customDomainNames = data.customDomainNames || {};
 }
 
 
@@ -508,15 +610,23 @@ function sorted(list) {
   return arr;
 }
 
-function updateBookmarkColumns() {
-  const list = $('#bookmarkList');
+function updateBookmarkColumns(container) {
+  const list = container || $('#bookmarkList');
   if (!list) return;
   const minColWidth = 180;
-  const gap = 6;
+  const gap = 8;
   const width = list.clientWidth || 600;
   let cols = Math.floor((width + gap) / (minColWidth + gap));
   cols = Math.max(1, Math.min(5, cols));
   list.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+}
+
+function updateAllColumns() {
+  if (state.filterType === 'all') {
+    $$('#bookmarkList .bookmark-grid').forEach(grid => updateBookmarkColumns(grid));
+  } else {
+    updateBookmarkColumns($('#bookmarkList'));
+  }
 }
 
 function bindBookmarkDrag(list) {
@@ -573,18 +683,28 @@ function bindBookmarkDrag(list) {
 
 function renderDomains() {
   const list = $('#domainList');
+  if (!$('#domainTotal')) return;
+  $('#domainTotal').textContent = domains.length;
   if (!domains.length) {
     list.innerHTML = '<div class="empty-state">暂无收藏网址</div>';
     return;
   }
   list.innerHTML = domains.map(g => {
     const active = state.filterType === 'domain' && state.filterKey === g.domain;
+    const isLocal = g.domain === 'localhost';
+    const tint = isLocal ? { bg: 'rgba(127, 127, 127, 0.16)', text: 'var(--muted)' } : softBadge(hueOf(g.domain));
+    const sp = splitDomain(g.domain);
+    const icon = isLocal
+      ? '<span class="domain-icon" style="background:#64748b">L</span>'
+      : `<img class="domain-icon favicon-img" src="${faviconUrl('https://' + g.domain + '/')}" alt="" draggable="false" data-letter="${g.domain[0].toUpperCase()}" data-color="${g.color}">`;
+    const name = customNameFor(g.domain);
+    const titleSnippet = name ? `<span class="domain-title" title="右键可改名">${name}</span>` : '';
     return `<div class="domain-item ${active ? 'active' : ''}" data-domain="${g.domain}">
-      <img class="domain-icon favicon-img" src="${faviconUrl('https://' + g.domain + '/')}" alt="" draggable="false" data-letter="${g.domain[0].toUpperCase()}" data-color="${g.color}">
+      ${icon}
       <span class="domain-info">
-        <span class="domain-name">${g.domain}</span>
+        <span class="domain-name">${titleSnippet}<span class="domain-host">${sp.base}<span class="domain-tld">${sp.tld}</span></span></span>
       </span>
-      <span class="domain-count">${g.count}</span>
+      <span class="domain-count" style="background:${tint.bg};color:${tint.text}">${g.count}</span>
     </div>`;
   }).join('');
     bindFaviconFallback(list);
@@ -603,12 +723,22 @@ function renderDomains() {
       renderFolders();
       renderContent();
     });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = el.dataset.domain;
+      openContextMenu(e.clientX, e.clientY, [
+        { label: '改名', run: () => renameDomain(id) },
+        ...(customDomainNames[id] ? [{ label: '清除名称', danger: true, run: () => clearDomainName(id) }] : [])
+      ]);
+    });
   });
 }
 
 function renderFolders() {
   const counts = new Map();
   allBookmarks.forEach(b => counts.set(b.folderId, (counts.get(b.folderId) || 0) + 1));
+  if ($('#folderTotal')) $('#folderTotal').textContent = countFolders(folderTree);
 
   const renderTree = (items, deep) => items.map(f => {
     const direct = counts.get(f.id) || 0;
@@ -617,14 +747,16 @@ function renderFolders() {
         : direct + f.children.reduce((sum, c) => sum + allCountOf(c, counts), 0);
     const expanded = deep < 1;
     const active = state.filterType === 'folder' && state.filterKey === f.id;
+    const fc = DEFAULT_FOLDER_NAMES.has(f.title) ? null : folderColor(f.title);
+    const tint = fc ? softBadge(fc.hue) : null;
     return `<li class="tree-item">
-      <div class="tree-row ${active ? 'active' : ''} ${expanded ? 'expanded' : ''} ${hiddenFolderIds.has(f.id) ? 'hidden-folder' : ''}" data-folder="${f.id}" draggable="${f.id === '__loose__' ? 'false' : 'true'}" style="--folder-bg:${DEFAULT_FOLDER_NAMES.has(f.title) ? 'transparent' : folderColor(f.title).bg}; --folder-border:${DEFAULT_FOLDER_NAMES.has(f.title) ? 'transparent' : folderColor(f.title).border}; ${deep ? '' : 'font-weight:600'}">
+      <div class="tree-row ${active ? 'active' : ''} ${expanded ? 'expanded' : ''} ${hiddenFolderIds.has(f.id) ? 'hidden-folder' : ''}" data-folder="${f.id}" draggable="${f.id === '__loose__' ? 'false' : 'true'}" style="--folder-bg:${fc ? fc.bg : 'transparent'}; --folder-border:${fc ? fc.border : 'transparent'}; ${deep ? '' : 'font-weight:600'}">
         ${f.children.length ? '<span class="tree-arrow">▶</span>' : '<span class="tree-arrow"></span>'}
-        <span class="tree-emoji">📁</span>
+        ${folderIcon(fc, 'tree-icon')}
         <span class="tree-label">${f.title}</span>
-        <span class="tree-count">${allInFolder}</span>
+        <span class="tree-count" style="${tint ? `background:${tint.bg};color:${tint.text}` : ''}">${allInFolder}</span>
       </div>
-      ${f.children.length ? `<ul class="tree-children open">${renderTree(f.children, deep + 1)}</ul>` : ''}
+      ${f.children.length ? `<ul class="tree-children open" style="--branch-color:${fc ? fc.border : 'var(--border)'}">${renderTree(f.children, deep + 1)}</ul>` : ''}
     </li>`;
   }).join('');
 
@@ -763,59 +895,100 @@ async function handleFolderDrop(e, targetRow) {
   await loadChromeBookmarks();
 }
 
+function renderBookmarkItem(b, useFolderBg) {
+  const color = colorFor(b.domain);
+  let rowStyle = '';
+  if (useFolderBg) {
+    const folderName = b.folderPath ? b.folderPath.split(' / ').pop() : '';
+    const fc = folderName && !DEFAULT_FOLDER_NAMES.has(folderName) ? folderColor(folderName) : null;
+    rowStyle = fc
+      ? `background:${fc.bg}; border-left:3px solid ${fc.border};`
+      : 'background:var(--surface-2); border-left:3px solid var(--border);';
+  }
+  return `<a class="domain-item bookmark-item" href="${b.url}" target="_blank" rel="noopener" style="${rowStyle}" draggable="true" data-id="${b.id}">
+    <img class="domain-icon favicon-img" src="${faviconUrl(b.url)}" alt="" draggable="false" data-letter="${(b.title || b.host || '?')[0].toUpperCase()}" data-color="${color}">
+    <span class="domain-info">
+      <span class="domain-name">${b.title}</span>
+    </span>
+  </a>`;
+}
+
+function bindInnerList(list) {
+  bindFaviconFallback(list);
+  bindBookmarkDrag(list);
+  list.querySelectorAll('.bookmark-item').forEach(item => {
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const b = allBookmarks.find(x => x.id === item.dataset.id);
+      if (!b) return;
+      openContextMenu(e.clientX, e.clientY, [
+        { label: '置顶', run: () => pinBookmark(b.id) },
+        { label: '改名', run: () => renameBookmarkModal(b.id, b.title) },
+        { label: '删除', danger: true, run: () => deleteBookmarkModal(b.id) }
+      ]);
+    });
+    item.addEventListener('click', () => {
+      state.filterType = 'all';
+      state.filterKey = 'all';
+      renderDomains();
+      renderFolders();
+      renderContent();
+    });
+  });
+}
+
+function groupByFolder(bookmarks) {
+  const map = new Map();
+  for (const b of bookmarks) {
+    if (!map.has(b.folderId)) map.set(b.folderId, { id: b.folderId, items: [] });
+    map.get(b.folderId).items.push(b);
+  }
+  return [...map.values()];
+}
+
 function renderContent() {
   const filter = { type: state.filterType, key: state.filterKey };
-  let filtered = allBookmarks.filter(b => isMatch(b, filter));
-  filtered = sorted(filtered);
+  let base = allBookmarks.filter(b => isMatch(b, filter));
   if (state.filterType === 'all') {
     const hiddenSet = new Set();
     hiddenFolderIds.forEach(id => collectFolderIds(id).forEach(x => hiddenSet.add(x)));
-    filtered = filtered.filter(b => !hiddenSet.has(b.folderId));
+    base = base.filter(b => !hiddenSet.has(b.folderId));
   }
   const list = $('#bookmarkList');
 
-  if (!filtered.length) {
-    list.innerHTML = '<div class="empty-state">暂无匹配网址</div>';
+  if (!base.length) {
+    list.className = 'bookmark-list';
+    list.innerHTML = '<div class="empty-state" style="grid-column:1 / -1">暂无匹配网址</div>';
     return;
   }
 
-  // 右侧与左侧“网址聚合”行样式完全一致
-  list.innerHTML = filtered.map(b => {
-    const color = colorFor(b.domain);
-      const folderName = b.folderPath ? b.folderPath.split(' / ').pop() : '';
-      const fc = folderName && !DEFAULT_FOLDER_NAMES.has(folderName) ? folderColor(folderName) : null;
-      const rowStyle = fc ? `background:${fc.bg}; border-left:3px solid ${fc.border};` : 'background:#ffffff; border-left:3px solid transparent;';
-    return `<a class="domain-item bookmark-item" href="${b.url}" target="_blank" rel="noopener" style="${rowStyle}" draggable="true" data-id="${b.id}">
-      <img class="domain-icon favicon-img" src="${faviconUrl(b.url)}" alt="" draggable="false" data-letter="${(b.title || b.host || '?')[0].toUpperCase()}" data-color="${color}">
-      <span class="domain-info">
-        <span class="domain-name">${b.title}</span>
-      </span>
-      
-    </a>`;
-  }).join('');
-    bindFaviconFallback(list);
-    updateBookmarkColumns();
-    bindBookmarkDrag(list);
-    list.querySelectorAll('.bookmark-item').forEach(item => {
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const b = allBookmarks.find(x => x.id === item.dataset.id);
-        if (!b) return;
-        openContextMenu(e.clientX, e.clientY, [
-            { label: '置顶', run: () => pinBookmark(b.id) },
-          { label: '改名', run: () => renameBookmarkModal(b.id, b.title) },
-          { label: '删除', danger: true, run: () => deleteBookmarkModal(b.id) }
-        ]);
-      });
-        item.addEventListener('click', () => {
-          state.filterType = 'all';
-          state.filterKey = 'all';
-          renderDomains();
-          renderFolders();
-          renderContent();
-        });
-    });
+  if (state.filterType === 'all') {
+    const groups = groupByFolder(base);
+    list.className = 'bookmark-list grouped';
+    list.innerHTML = groups.map(g => {
+      const items = sorted(g.items);
+      const path = g.items[0].folderPath || '';
+      const leaf = path ? path.split(' / ').pop() : '';
+      const fc = leaf && !DEFAULT_FOLDER_NAMES.has(leaf) ? folderColor(leaf) : null;
+      return `<section class="folder-group ${fc ? '' : 'neutral'}" style="--g-text:${fc ? fc.text : 'var(--text)'};--g-hover:${fc ? fc.hover : 'var(--border)'};--g-head-bg:${fc ? fc.bg : 'var(--surface-2)'};background:${fc ? fc.bg : 'var(--surface-2)'};border-left:3px solid ${fc ? fc.border : 'var(--border-strong)'};">
+        <header class="folder-group-head">
+          ${folderIcon(fc, 'fg-icon')}
+          <span class="fg-title">${path || leaf || '未分类'}</span>
+          <span class="fg-count">${items.length}</span>
+        </header>
+        <div class="bookmark-grid">${items.map(b => renderBookmarkItem(b, false)).join('')}</div>
+      </section>`;
+    }).join('');
+    updateAllColumns();
+    bindInnerList(list);
+  } else {
+    const items = sorted(base);
+    list.className = 'bookmark-list';
+    list.innerHTML = items.map(b => renderBookmarkItem(b, true)).join('');
+    updateAllColumns();
+    bindInnerList(list);
+  }
 }
 
 // ===== 顶栏事件 =====
@@ -855,8 +1028,9 @@ $('#sortSelect').addEventListener('change', (e) => {
 
   $('#appModalOk').addEventListener('click', () => {
     const cb = modalOnOk;
+    const value = $('#appModalInput').value;
     hideModal();
-    if (cb) cb();
+    if (cb) cb(value);
   });
 
   $('#appModalCancel').addEventListener('click', hideModal);
@@ -913,7 +1087,20 @@ $('#sortSelect').addEventListener('change', (e) => {
     }
   });
 
-window.addEventListener('resize', updateBookmarkColumns);
+  const darkModeEl = $('#darkMode');
+  if (darkModeEl) {
+    darkModeEl.addEventListener('change', async (e) => {
+      document.documentElement.dataset.theme = e.target.checked ? 'dark' : 'light';
+      if (chrome.storage && chrome.storage.local) {
+        await new Promise(resolve => chrome.storage.local.set({ darkMode: e.target.checked }, resolve));
+      }
+      renderDomains();
+      renderFolders();
+      renderContent();
+    });
+  }
+
+window.addEventListener('resize', updateAllColumns);
 
 // ===== 拖动调整宽度 =====
 function enableResize(panel, resizer) {
@@ -936,7 +1123,7 @@ function enableResize(panel, resizer) {
     let pct = startPct + (e.clientX - startX) / workspaceWidth;
     pct = Math.max(0.125, Math.min(0.25, pct));
     panel.style.width = (pct * 100).toFixed(2) + '%';
-      updateBookmarkColumns();
+      updateAllColumns();
   }
 
   function onUp() {

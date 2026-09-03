@@ -391,6 +391,47 @@ body {
   min-width: 0;
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 7px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.panel-title::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.count-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  margin-left: auto;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .workspace aside.panel {
   flex: 0 0 auto;
   min-width: 12.5%;
@@ -482,12 +523,31 @@ body {
 
 .domain-info { min-width: 0; flex: 1; }
 .domain-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   overflow: hidden;
+}
+.domain-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.domain-host {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.domain-tld {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
 }
 .domain-sub {
   font-size: 10px;
@@ -533,7 +593,15 @@ body {
 
 .tree-arrow { width: 12px; height: 12px; display: grid; place-items: center; font-size: 8px; color: var(--muted); flex-shrink: 0; transition: transform 0.2s; }
 .tree-row.expanded .tree-arrow { transform: rotate(90deg); }
-.tree-emoji { font-size: 12px; flex-shrink: 0; }
+.tree-icon, .fg-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.tree-icon svg, .fg-icon svg { display: block; }
 .tree-label { min-width: 0; flex: 1; font-size: 12px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-count { font-size: 10px; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: 1px 6px; line-height: 1.2; flex-shrink: 0; }
 
@@ -546,7 +614,7 @@ body {
   top: 3px;
   bottom: 6px;
   width: 1px;
-  background: var(--border);
+  background: var(--branch-color, var(--border));
 }
 
 /* 右侧内容：列表，不是卡片 */
@@ -571,7 +639,7 @@ body {
   .bookmark-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 6px;
+    gap: 8px;
     align-content: start;
       overflow-x: hidden;
   }
@@ -621,6 +689,73 @@ body {
   white-space: nowrap;
 }
 
+/* 分组色块（仅“全部”视图） */
+.bookmark-list.grouped {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-template-columns: none;
+}
+
+.folder-group {
+  flex: 0 0 auto;
+  border-radius: 10px;
+  padding: 6px 10px 10px 8px;
+}
+
+.folder-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--g-head-bg, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--g-text, var(--text));
+}
+
+.fg-icon { flex-shrink: 0; }
+
+.fg-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fg-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--g-text, var(--muted));
+  background: rgba(127, 127, 127, 0.14);
+  border-radius: 999px;
+  padding: 1px 7px;
+  line-height: 1.2;
+}
+
+.bookmark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  align-content: start;
+  overflow-x: hidden;
+}
+
+.bookmark-list.grouped .bookmark-item {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.folder-group .bookmark-item:hover {
+  background: var(--g-hover, var(--surface-2));
+}
+
 .empty-state {
   padding: 60px 20px;
   text-align: center;
@@ -644,3 +779,31 @@ body {
   .topbar { flex-wrap: wrap; }
   .search-box { order: 5; flex-basis: 100%; max-width: none; }
 }
+
+/* 暗色主题 */
+html[data-theme="dark"] {
+  --bg: #0b0e14;
+  --surface: #12151c;
+  --surface-2: #1c222e;
+  --border: #242b3a;
+  --border-strong: #37415a;
+  --text: #e7ecf5;
+  --muted: #8c97ad;
+  --accent: #5b9cff;
+  --accent-soft: rgba(91, 156, 255, 0.16);
+  --accent-strong: #8ab8ff;
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body { background: var(--bg); }
+html[data-theme="dark"] .search-box input:focus {
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px rgba(91, 156, 255, 0.25);
+}
+html[data-theme="dark"] .fg-count { background: rgba(255, 255, 255, 0.12); }
+html[data-theme="dark"] .undo-toast,
+html[data-theme="dark"] .app-modal-box,
+html[data-theme="dark"] .settings-panel,
+html[data-theme="dark"] .context-menu { background: var(--surface); }
+html[data-theme="dark"] .domain-item:hover,
+html[data-theme="dark"] .tree-row:hover { background: var(--surface-2); }
