@@ -21,6 +21,21 @@ Thank you for your interest in contributing to **bookmark-beautify**!
 
 （在 `chrome://extensions` 里刷新扩展即可重新加载改动。）
 
+## Validation / 验证
+
+Use Node.js 18 or later for automated checks (Node.js is not needed to use the extension):
+自动检查需要 Node.js 18 或更新版本（使用扩展本身不需要 Node.js）：
+
+```sh
+node --test tests/bookmarks.test.cjs
+node --check app.js
+node --check background.js
+git diff --check
+```
+
+Load the unpacked extension to verify real browser interaction. Use synthetic bookmarks for screenshots and test fixtures. Do not commit browser exports, credentials, local assistant records, or environment configuration; redact private URLs and folder names in bug reports.
+在已解压扩展中核对真实浏览器交互。截图和测试数据请使用虚构书签；不要提交浏览器书签导出、凭证、本地助手记录或环境配置。提交问题反馈前请遮盖私人网址和文件夹名称。
+
 ## How to submit changes / 提交改动
 
 1. Fork 仓库并克隆到本地。

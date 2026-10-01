@@ -9,3 +9,19 @@ release/
 # Archives (keep the repo clean; release zips go elsewhere)
 *.zip
 *.log
+
+# Local assistant state and private work notes
+.workbuddy/
+.codex/
+.agents/
+PROJECT_REVIEW.md
+
+# Local configuration and credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Browser bookmark exports (never commit real browsing data)
+bookmarks*.html
+bookmarks*.json

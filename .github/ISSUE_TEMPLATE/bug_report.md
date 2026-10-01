@@ -23,7 +23,8 @@ assignees: ''
 
 **Screenshots / 截图**
 
-<!-- If applicable, add screenshots to explain the issue. -->
+<!-- If applicable, add screenshots to explain the issue. Redact private URLs and folder names; never attach a personal bookmark export. -->
+<!-- 截图请遮盖私人网址和文件夹名称，不要上传个人书签导出。 -->
 
 **Environment / 环境信息**
 

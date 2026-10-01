@@ -13,6 +13,8 @@ const settings = { hideDomainIcons: false, hideContentIcons: false };
 let hiddenFolderIds = new Set();
 let rootFolderIds = new Set();
 let barFolderId = null;
+const folderExpansion = new Map();
+let dragExpandTimer = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -125,10 +127,15 @@ function folderColor(name) {
   };
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
 function faviconUrl(url) {
   try {
-    const u = new URL(url);
-    return `${chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(url) + '&size=32') : 'https://www.google.com/s2/favicons?domain=' + u.hostname + '&sz=32'}`;
+    new URL(url);
+    if (!window.chrome?.runtime?.getURL) return '';
+    return chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(url) + '&size=32');
   } catch {
     return '';
   }
@@ -162,7 +169,10 @@ function collectBookmarks(nodes, parentPath) {
         } catch {
           host = '';
         }
-        if (!host) continue;
+        if (!host) {
+          try { host = new URL(node.url).protocol.replace(':', '') || '其他'; }
+          catch { host = '其他'; }
+        }
         items.push({
           id: node.id,
           title: node.title || host,
@@ -244,8 +254,12 @@ function buildFolderTree(nodes) {
     });
 }
 
+function findBookmarkBar(roots) {
+  return roots.find(n => n.folderType === 'bookmarks-bar') || roots.find(n => n.id === '1') || roots.find(n => n.title === '收藏夹栏' || n.title === '书签栏' || n.title === 'Bookmarks bar');
+}
+
 function buildDisplayFolderTree(roots) {
-  const bar = roots.find(n => n.title === '收藏夹栏' || n.title === '书签栏' || n.title === 'Bookmarks bar');
+  const bar = findBookmarkBar(roots);
   const others = roots.filter(n => !n.url && n !== bar);
   const loose = { id: '__loose__', title: '零散', emoji: '📄', children: [] };
   const barChildren = bar ? buildFolderTree(bar.children || []) : [];
@@ -264,13 +278,13 @@ async function loadChromeBookmarks() {
     return;
   }
 
-  const tree = await new Promise(resolve => chrome.bookmarks.getTree(resolve));
+  const tree = await bookmarksCall('getTree');
   const roots = tree && tree[0] && tree[0].children ? tree[0].children : [];
-  const { items, folders } = collectBookmarks(roots, '');
+  const { items } = collectBookmarks(roots, '');
   allBookmarks = items;
   rootFolderIds = new Set(roots.filter(n => !n.url).map(n => n.id));
-    barFolderId = roots.find(n => n.title === '收藏夹栏' || n.title === '书签栏' || n.title === 'Bookmarks bar')?.id || null;
-    folderTree = buildDisplayFolderTree(roots);
+  barFolderId = findBookmarkBar(roots)?.id || null;
+  folderTree = buildDisplayFolderTree(roots);
   domains = computeDomainGroups(allBookmarks);
   renderDomains();
   renderFolders();
@@ -278,7 +292,7 @@ async function loadChromeBookmarks() {
 }
 
 async function loadSettings() {
-  if (!chrome.storage || !chrome.storage.local) return;
+  if (!window.chrome?.storage?.local) return;
   const data = await new Promise(resolve => chrome.storage.local.get(['hideDomainIcons', 'hideContentIcons', 'hiddenFolders', 'darkMode', 'customDomainNames'], resolve));
   settings.hideDomainIcons = !!data.hideDomainIcons;
   settings.hideContentIcons = !!data.hideContentIcons;
@@ -293,13 +307,18 @@ async function loadSettings() {
 }
 
 
-function hideContextMenu() {
+let contextMenuReturnFocus = null;
+
+function hideContextMenu(restoreFocus = false) {
   const menu = $('#contextMenu');
+  const wasOpen = menu && !menu.hidden;
   if (menu) menu.hidden = true;
+  if (restoreFocus === true && wasOpen && contextMenuReturnFocus?.isConnected) contextMenuReturnFocus.focus();
 }
 
 function openContextMenu(x, y, items) {
   const menu = $('#contextMenu');
+  contextMenuReturnFocus = document.activeElement;
   menu.innerHTML = '';
   items.forEach(item => {
     const btn = document.createElement('button');
@@ -307,16 +326,24 @@ function openContextMenu(x, y, items) {
     btn.textContent = item.label;
     btn.addEventListener('click', () => {
       menu.hidden = true;
-      item.run();
+      Promise.resolve().then(() => item.run()).catch(reportActionError);
     });
     menu.appendChild(btn);
   });
   menu.hidden = false;
-  menu.style.left = Math.max(8, Math.min(x, window.innerWidth - 190)) + 'px';
-  menu.style.top = Math.max(8, Math.min(y, window.innerHeight - items.length * 32 - 12)) + 'px';
+  menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+  menu.querySelector('button')?.focus();
 }
 
 document.addEventListener('click', hideContextMenu);
+$('#contextMenu').addEventListener('keydown', e => {
+  if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+  e.preventDefault();
+  const buttons = [...$('#contextMenu').querySelectorAll('button')];
+  const index = buttons.indexOf(document.activeElement);
+  buttons[(index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+});
 document.addEventListener('contextmenu', (e) => {
   if (!e.target.closest('#contextMenu')) hideContextMenu();
 });
@@ -362,32 +389,33 @@ function pushUndo(item) {
   showUndoToast('已删除，可撤销');
 }
 
-async function createTreeFromSnapshot(snapshot, parentId, index) {
+async function createTreeFromSnapshot(snapshot, parentId, index, mapping = new Map()) {
   if (!snapshot) return;
   if (snapshot.url) {
-    await new Promise(resolve => chrome.bookmarks.create({
+    await bookmarksCall('create', {
       parentId, index, title: snapshot.title || '', url: snapshot.url
-    }, resolve));
+    });
     return;
   }
-  const created = await new Promise(resolve => chrome.bookmarks.create({
+  const created = await bookmarksCall('create', {
     parentId, index, title: snapshot.title || '未命名'
-  }, resolve));
+  });
+  mapping.set(snapshot.id, created.id);
   let childIndex = 0;
   for (const child of (snapshot.children || [])) {
-    await createTreeFromSnapshot(child, created.id, childIndex++);
+    await createTreeFromSnapshot(child, created.id, childIndex++, mapping);
   }
 }
 
 async function restoreWantedFolder(snapshot, parentId, index, mapping) {
   if (!snapshot) return;
   if (snapshot.url) {
-    await new Promise(resolve => chrome.bookmarks.move(snapshot.id, { parentId, index }, resolve));
+    await bookmarksCall('move', snapshot.id, { parentId, index });
     return;
   }
-  const created = await new Promise(resolve => chrome.bookmarks.create({
+  const created = await bookmarksCall('create', {
     parentId, index, title: snapshot.title || '未命名'
-  }, resolve));
+  });
   mapping.set(snapshot.id, created.id);
   let childIndex = 0;
   for (const child of (snapshot.children || [])) {
@@ -404,26 +432,26 @@ async function saveHiddenFolders() {
 async function renameBookmark(id, currentTitle) {
   const title = prompt('请输入新的收藏标题：', currentTitle);
   if (!title || !title.trim()) return;
-  await new Promise(resolve => chrome.bookmarks.update(id, { title: title.trim() }, resolve));
+  await bookmarksCall('update', id, { title: title.trim() });
   await loadChromeBookmarks();
 }
 
 async function renameFolder(id, currentTitle) {
   const title = prompt('请输入新的文件夹名称：', currentTitle);
   if (!title || !title.trim()) return;
-  await new Promise(resolve => chrome.bookmarks.update(id, { title: title.trim() }, resolve));
+  await bookmarksCall('update', id, { title: title.trim() });
   await loadChromeBookmarks();
 }
 
 async function deleteBookmark(id) {
   if (!confirm('确定删除这个收藏网址吗？')) return;
-  await new Promise(resolve => chrome.bookmarks.remove(id, resolve));
+  await bookmarksCall('remove', id);
   await loadChromeBookmarks();
 }
 
 async function getFolderParentId(id) {
   if (!chrome.bookmarks || !chrome.bookmarks.get) return '';
-  const nodes = await new Promise(resolve => chrome.bookmarks.get(id, resolve));
+  const nodes = await bookmarksCall('get', id);
   return nodes && nodes[0] ? nodes[0].parentId : '';
 }
 
@@ -433,10 +461,10 @@ async function deleteFolderRelease(id) {
   const toMove = allBookmarks.filter(b => ids.includes(b.folderId));
   for (const b of toMove) {
     if (parentId) {
-      await new Promise(resolve => chrome.bookmarks.move(b.id, { parentId }, resolve));
+      await bookmarksCall('move', b.id, { parentId });
     }
   }
-  await new Promise(resolve => chrome.bookmarks.removeTree(id, resolve));
+  await bookmarksCall('removeTree', id);
     ids.forEach(x => hiddenFolderIds.delete(x));
     await saveHiddenFolders();
   await loadChromeBookmarks();
@@ -445,7 +473,7 @@ async function deleteFolderRelease(id) {
 async function deleteFolderWithContent(id) {
   if (!confirm('确定连同内部所有网址一起删除这个文件夹吗？')) return;
     const ids = collectFolderIds(id);
-  await new Promise(resolve => chrome.bookmarks.removeTree(id, resolve));
+  await bookmarksCall('removeTree', id);
     ids.forEach(x => hiddenFolderIds.delete(x));
     await saveHiddenFolders();
   await loadChromeBookmarks();
@@ -463,39 +491,39 @@ async function toggleFolderHidden(id) {
 function renameBookmarkModal(id, currentTitle) {
   showInputModal('修改网址标题', currentTitle, async (title) => {
     if (!title || !title.trim()) return;
-    await new Promise(resolve => chrome.bookmarks.update(id, { title: title.trim() }, resolve));
+    await bookmarksCall('update', id, { title: title.trim() });
     await loadChromeBookmarks();
   });
 }
 
 async function pinBookmark(id) {
-    const nodes = await new Promise(resolve => chrome.bookmarks.get(id, resolve));
+    const nodes = await bookmarksCall('get', id);
     const node = nodes && nodes[0];
     if (!node) return;
-    await new Promise(resolve => chrome.bookmarks.move(id, { parentId: node.parentId, index: 0 }, resolve));
+    await bookmarksCall('move', id, { parentId: node.parentId, index: 0 });
     await loadChromeBookmarks();
   }
 
   function renameFolderModal(id, currentTitle) {
   showInputModal('修改文件夹名称', currentTitle, async (title) => {
     if (!title || !title.trim()) return;
-    await new Promise(resolve => chrome.bookmarks.update(id, { title: title.trim() }, resolve));
+    await bookmarksCall('update', id, { title: title.trim() });
     await loadChromeBookmarks();
   });
 }
 
 async function addFolder() {
   if (!barFolderId) return;
-  const created = await new Promise(resolve => chrome.bookmarks.create({ parentId: barFolderId, title: '新建文件夹' }, resolve));
+  const created = await bookmarksCall('create', { parentId: barFolderId, title: '新建文件夹' });
   await loadChromeBookmarks();
   renameFolderModal(created.id, '新建文件夹');
 }
 
 function deleteBookmarkModal(id) {
   showConfirmModal('删除网址', '确定删除这个收藏网址吗？', async () => {
-    const nodes = await new Promise(resolve => chrome.bookmarks.get(id, resolve));
+    const nodes = await bookmarksCall('get', id);
     const node = nodes && nodes[0];
-    await new Promise(resolve => chrome.bookmarks.remove(id, resolve));
+    await bookmarksCall('remove', id);
     if (node) pushUndo({ kind: 'url', node });
     await loadChromeBookmarks();
   });
@@ -503,33 +531,35 @@ function deleteBookmarkModal(id) {
 
 function deleteFolderReleaseModal(id) {
   showConfirmModal('删除文件夹', '释放内部网址并删除文件夹？', async () => {
-    const subtree = await new Promise(resolve => chrome.bookmarks.getSubTree(id, resolve));
+    const subtree = await bookmarksCall('getSubTree', id);
     const snapshot = subtree && subtree[0];
     const parentId = await getFolderParentId(id);
     const ids = collectFolderIds(id);
+    const hiddenIds = ids.filter(folderId => hiddenFolderIds.has(folderId));
     const toMove = allBookmarks.filter(b => ids.includes(b.folderId));
     for (const b of toMove) {
       if (parentId) {
-        await new Promise(resolve => chrome.bookmarks.move(b.id, { parentId }, resolve));
+        await bookmarksCall('move', b.id, { parentId });
       }
     }
-    await new Promise(resolve => chrome.bookmarks.removeTree(id, resolve));
+    await bookmarksCall('removeTree', id);
     ids.forEach(x => hiddenFolderIds.delete(x));
     await saveHiddenFolders();
-    if (snapshot) pushUndo({ kind: 'release', snapshot, hiddenIds: [...ids] });
+    if (snapshot) pushUndo({ kind: 'release', snapshot, hiddenIds });
     await loadChromeBookmarks();
   });
 }
 
 function deleteFolderWithContentModal(id) {
   showConfirmModal('删除文件夹', '确定连同内部所有网址一起删除这个文件夹吗？', async () => {
-    const subtree = await new Promise(resolve => chrome.bookmarks.getSubTree(id, resolve));
+    const subtree = await bookmarksCall('getSubTree', id);
     const snapshot = subtree && subtree[0];
     const ids = collectFolderIds(id);
-    await new Promise(resolve => chrome.bookmarks.removeTree(id, resolve));
+    const hiddenIds = ids.filter(folderId => hiddenFolderIds.has(folderId));
+    await bookmarksCall('removeTree', id);
     ids.forEach(x => hiddenFolderIds.delete(x));
     await saveHiddenFolders();
-    if (snapshot) pushUndo({ kind: 'folder', snapshot, hiddenIds: [...ids] });
+    if (snapshot) pushUndo({ kind: 'folder', snapshot, hiddenIds });
     await loadChromeBookmarks();
   });
 }
@@ -538,25 +568,27 @@ async function performUndo() {
   const item = undoStack.pop();
   if (!item) return;
   try {
+    const mapping = new Map();
     if (item.kind === 'url' && item.node) {
-      await new Promise(resolve => chrome.bookmarks.create({
+      await bookmarksCall('create', {
         parentId: item.node.parentId,
         index: item.node.index,
         title: item.node.title || '',
         url: item.node.url
-      }, resolve));
+      });
     } else if (item.kind === 'folder' && item.snapshot) {
-      await createTreeFromSnapshot(item.snapshot, item.snapshot.parentId || '0', item.snapshot.index || 0);
+      await createTreeFromSnapshot(item.snapshot, item.snapshot.parentId || '0', item.snapshot.index || 0, mapping);
     } else if (item.kind === 'release' && item.snapshot) {
-      const mapping = new Map();
       await restoreWantedFolder(item.snapshot, item.snapshot.parentId || '0', item.snapshot.index || 0, mapping);
-      (item.hiddenIds || []).forEach(id => hiddenFolderIds.add(id));
-      await saveHiddenFolders();
     }
+    (item.hiddenIds || []).forEach(id => {
+      if (mapping.has(id)) hiddenFolderIds.add(mapping.get(id));
+    });
+    await saveHiddenFolders();
     await loadChromeBookmarks();
     $('#undoToast').hidden = true;
   } catch (err) {
-    console.error(err);
+    reportActionError(err);
   }
 }
 // ===== 渲染 =====
@@ -582,12 +614,17 @@ function collectFolderIds(folderId) {
   return ids;
 }
 
+// 零散是直属浏览器系统根目录、未放入用户文件夹的书签。
+function isLooseBookmark(b) {
+  return rootFolderIds.has(b.folderId);
+}
+
 function isMatch(b, filter) {
   const q = state.search.trim().toLowerCase();
   if (filter.type === 'domain' && b.domain !== filter.key) return false;
   if (filter.type === 'folder') {
     if (filter.key === '__loose__') {
-        if (!rootFolderIds.has(b.folderId)) return false;
+        if (!isLooseBookmark(b)) return false;
       } else {
         const ids = collectFolderIds(filter.key);
     if (!ids.includes(b.folderId)) return false;
@@ -622,8 +659,9 @@ function updateBookmarkColumns(container) {
 }
 
 function updateAllColumns() {
-  if (state.filterType === 'all') {
-    $$('#bookmarkList .bookmark-grid').forEach(grid => updateBookmarkColumns(grid));
+  const grids = $$('#bookmarkList .bookmark-grid');
+  if (grids.length) {
+    grids.forEach(grid => updateBookmarkColumns(grid));
   } else {
     updateBookmarkColumns($('#bookmarkList'));
   }
@@ -632,50 +670,37 @@ function updateAllColumns() {
 function bindBookmarkDrag(list) {
   list.querySelectorAll('.bookmark-item').forEach(item => {
     item.addEventListener('dragstart', (e) => {
+      clearDragState();
       draggedBookmarkId = item.dataset.id;
       item.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', item.dataset.id);
+      e.dataTransfer.setData('text/plain', draggedBookmarkId);
     });
-
-    item.addEventListener('dragend', () => {
-      draggedBookmarkId = null;
-      list.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-before', 'drag-after'));
-    });
-
+    item.addEventListener('dragend', clearDragState);
     item.addEventListener('dragover', (e) => {
-      if (!draggedBookmarkId || draggedBookmarkId === item.dataset.id) return;
+      if (!draggedBookmarkId || draggedBookmarkId === item.dataset.id || state.sort !== 'default') return;
       e.preventDefault();
-      item.classList.remove('drag-before', 'drag-after');
-      item.classList.add('drag-over');
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      clearDragMarks();
       const rect = item.getBoundingClientRect();
-      if (e.clientX < rect.left + rect.width / 2) item.classList.add('drag-before');
-      else item.classList.add('drag-after');
+      item.classList.add(e.clientX < rect.left + rect.width / 2 ? 'drag-before' : 'drag-after');
     });
-
-    item.addEventListener('dragleave', () => item.classList.remove('drag-over', 'drag-before', 'drag-after'));
-
+    item.addEventListener('dragleave', () => clearDragMarks());
     item.addEventListener('drop', async (e) => {
       e.preventDefault();
-      item.classList.remove('drag-over', 'drag-before', 'drag-after');
-      const sourceId = draggedBookmarkId || e.dataTransfer.getData('text/plain');
+      e.stopPropagation();
+      const sourceId = draggedBookmarkId;
       const targetId = item.dataset.id;
-      if (!sourceId || sourceId === targetId) return;
-      const source = allBookmarks.find(b => b.id === sourceId);
-      const target = allBookmarks.find(b => b.id === targetId);
-      if (!source || !target || source.folderId !== target.folderId) return;
-
-      const siblings = allBookmarks.filter(b => b.folderId === source.folderId);
-      const targetIndex = siblings.findIndex(b => b.id === targetId);
-      if (targetIndex < 0) return;
-
+      const rect = item.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      clearDragState();
+      if (!sourceId || sourceId === targetId || state.sort !== 'default') return;
       try {
-        if (chrome.bookmarks && chrome.bookmarks.move) {
-          await new Promise(resolve => chrome.bookmarks.move(sourceId, { parentId: source.folderId, index: targetIndex }, resolve));
-          await loadChromeBookmarks();
-        }
-      } catch (err) {
-        console.error(err);
+        await moveRelative(sourceId, targetId, before);
+        await loadChromeBookmarks();
+      } catch (error) {
+        reportMoveError(error);
       }
     });
   });
@@ -692,24 +717,24 @@ function renderDomains() {
   list.innerHTML = domains.map(g => {
     const active = state.filterType === 'domain' && state.filterKey === g.domain;
     const isLocal = g.domain === 'localhost';
-    const tint = isLocal ? { bg: 'rgba(127, 127, 127, 0.16)', text: 'var(--muted)' } : softBadge(hueOf(g.domain));
     const sp = splitDomain(g.domain);
     const icon = isLocal
       ? '<span class="domain-icon" style="background:#64748b">L</span>'
       : `<img class="domain-icon favicon-img" src="${faviconUrl('https://' + g.domain + '/')}" alt="" draggable="false" data-letter="${g.domain[0].toUpperCase()}" data-color="${g.color}">`;
     const name = customNameFor(g.domain);
-    const titleSnippet = name ? `<span class="domain-title" title="右键可改名">${name}</span>` : '';
-    return `<div class="domain-item ${active ? 'active' : ''}" data-domain="${g.domain}">
+    const titleSnippet = name ? `<span class="domain-title" title="右键可改名">${escapeHtml(name)}</span>` : '';
+    return `<div class="domain-item ${active ? 'active' : ''}" data-domain="${g.domain}" role="button" tabindex="0" aria-pressed="${active}" title="${escapeHtml(name ? name + ' · ' + g.domain : g.domain)}">
       ${icon}
       <span class="domain-info">
         <span class="domain-name">${titleSnippet}<span class="domain-host">${sp.base}<span class="domain-tld">${sp.tld}</span></span></span>
       </span>
-      <span class="domain-count" style="background:${tint.bg};color:${tint.text}">${g.count}</span>
+      <span class="domain-count">${g.count}</span>
     </div>`;
   }).join('');
     bindFaviconFallback(list);
 
   $$('#domainList .domain-item').forEach(el => {
+    el.addEventListener('keydown', activateRowWithKeyboard);
     el.addEventListener('click', () => {
       const key = el.dataset.domain;
       if (state.filterType === 'domain' && state.filterKey === key) {
@@ -743,32 +768,38 @@ function renderFolders() {
   const renderTree = (items, deep) => items.map(f => {
     const direct = counts.get(f.id) || 0;
     const allInFolder = f.id === '__loose__'
-        ? allBookmarks.filter(b => rootFolderIds.has(b.folderId)).length
+        ? allBookmarks.filter(b => isLooseBookmark(b)).length
         : direct + f.children.reduce((sum, c) => sum + allCountOf(c, counts), 0);
-    const expanded = deep < 1;
+    const expanded = folderExpansion.get(f.id) ?? (deep < 1);
     const active = state.filterType === 'folder' && state.filterKey === f.id;
     const fc = DEFAULT_FOLDER_NAMES.has(f.title) ? null : folderColor(f.title);
-    const tint = fc ? softBadge(fc.hue) : null;
     return `<li class="tree-item">
-      <div class="tree-row ${active ? 'active' : ''} ${expanded ? 'expanded' : ''} ${hiddenFolderIds.has(f.id) ? 'hidden-folder' : ''}" data-folder="${f.id}" draggable="${f.id === '__loose__' ? 'false' : 'true'}" style="--folder-bg:${fc ? fc.bg : 'transparent'}; --folder-border:${fc ? fc.border : 'transparent'}; ${deep ? '' : 'font-weight:600'}">
-        ${f.children.length ? '<span class="tree-arrow">▶</span>' : '<span class="tree-arrow"></span>'}
+      <div class="tree-row ${active ? 'active' : ''} ${expanded ? 'expanded' : ''} ${hiddenFolderIds.has(f.id) ? 'hidden-folder' : ''}" data-folder="${f.id}" role="button" tabindex="0" aria-pressed="${active}" draggable="${f.id === '__loose__' || rootFolderIds.has(f.id) ? 'false' : 'true'}" style="${deep ? '' : 'font-weight:600'}">
+        ${f.children.length ? `<button type="button" class="tree-arrow" aria-label="展开或折叠 ${escapeHtml(f.title)}" aria-expanded="${expanded}">›</button>` : '<span class="tree-arrow"></span>'}
         ${folderIcon(fc, 'tree-icon')}
-        <span class="tree-label">${f.title}</span>
-        <span class="tree-count" style="${tint ? `background:${tint.bg};color:${tint.text}` : ''}">${allInFolder}</span>
+        <span class="tree-label">${escapeHtml(f.title)}</span>
+        <span class="tree-count">${allInFolder}</span>
+        ${f.id === '__loose__' || rootFolderIds.has(f.id) ? '' : `<button class="row-menu" type="button" aria-label="管理文件夹 ${escapeHtml(f.title)}" title="管理文件夹" draggable="false">⋯</button>`}
       </div>
-      ${f.children.length ? `<ul class="tree-children open" style="--branch-color:${fc ? fc.border : 'var(--border)'}">${renderTree(f.children, deep + 1)}</ul>` : ''}
+      ${f.children.length ? `<ul class="tree-children ${expanded ? 'open' : ''}">${renderTree(f.children, deep + 1)}</ul>` : ''}
     </li>`;
   }).join('');
 
   $('#folderTree').innerHTML = renderTree(folderTree, 0);
 
   $$('#folderTree .tree-row').forEach(row => {
+    row.addEventListener('keydown', activateRowWithKeyboard);
+    bindRowMenu(row, () => folderMenuItems(row.dataset.folder));
     row.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target.closest('.row-menu')) return;
       const id = row.dataset.folder;
-      if (e.target.closest('.tree-arrow')) {
+      if (e.target.closest('.tree-arrow') && row.nextElementSibling) {
         row.classList.toggle('expanded');
         const children = row.nextElementSibling;
         if (children) children.classList.toggle('open');
+        folderExpansion.set(id, row.classList.contains('expanded'));
+        row.querySelector('.tree-arrow').setAttribute('aria-expanded', row.classList.contains('expanded'));
         return;
       }
       if (state.filterType === 'folder' && state.filterKey === id) {
@@ -782,77 +813,52 @@ function renderFolders() {
       renderFolders();
       renderContent();
     });
+      row.title = row.dataset.folder === '__loose__'
+        ? '未放入文件夹的书签；拖入书签可移出文件夹，拖入文件夹可移回顶层'
+        : '拖到上/下边缘排序，拖到中间移入文件夹；悬停展开子级';
       row.addEventListener('dragstart', (e) => {
+        if (row.draggable === false) { e.preventDefault(); return; }
+        clearDragState();
         draggedFolderId = row.dataset.folder;
+        row.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', row.dataset.folder);
+        e.dataTransfer.setData('text/plain', draggedFolderId);
       });
-
-      row.addEventListener('dragend', () => {
-        draggedFolderId = null;
-        document.querySelectorAll('.tree-row').forEach(r => r.classList.remove('drop-target', 'drag-before', 'drag-after'));
-      });
+      row.addEventListener('dragend', clearDragState);
       row.addEventListener('dragover', (e) => {
+        const sourceId = draggedFolderId || draggedBookmarkId;
+        const position = folderDropPosition(e, row);
+        if (!canDropOnFolder(sourceId, row.dataset.folder, position)) return;
         e.preventDefault();
-        row.classList.add('drop-target');
-        row.classList.remove('drag-before', 'drag-after');
-        const rect = row.getBoundingClientRect();
-        const ratio = (e.clientY - rect.top) / rect.height;
-        if (ratio < 0.34) row.classList.add('drag-before');
-        else if (ratio > 0.66) row.classList.add('drag-after');
-      });
-
-      row.addEventListener('dragleave', () => {
-        row.classList.remove('drop-target');
-      });
-
-      row.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        row.classList.remove('drop-target');
-        if (draggedFolderId) {
-          await handleFolderDrop(e, row);
-          return;
-        }
-          const id = draggedBookmarkId || e.dataTransfer.getData('text/plain');
-        if (!id) return;
-        try {
-          if (chrome.bookmarks && chrome.bookmarks.move) {
-            const targetFolder = await getFolderNode(row.dataset.folder);
-              if (!targetFolder) return;
-              const rect = row.getBoundingClientRect();
-              const ratio = (e.clientY - rect.top) / rect.height;
-              let moveParent = row.dataset.folder;
-              let moveIndex = (await new Promise(resolve => chrome.bookmarks.getChildren(row.dataset.folder, resolve))).length;
-              if (ratio < 0.34 && targetFolder.parentId) {
-                moveParent = targetFolder.parentId;
-                const children = await new Promise(resolve => chrome.bookmarks.getChildren(moveParent, resolve));
-                moveIndex = children.findIndex(n => n.id === row.dataset.folder);
-              } else if (ratio > 0.66 && targetFolder.parentId) {
-                moveParent = targetFolder.parentId;
-                const children = await new Promise(resolve => chrome.bookmarks.getChildren(moveParent, resolve));
-                moveIndex = children.findIndex(n => n.id === row.dataset.folder) + 1;
-              }
-              await new Promise(resolve => chrome.bookmarks.move(id, { parentId: moveParent, index: moveIndex }, resolve));
-            draggedBookmarkId = null;
-            await loadChromeBookmarks();
-          }
-        } catch (err) {
-          console.error(err);
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        clearDragMarks(row);
+        row.classList.remove('drop-target', 'drag-before', 'drag-after');
+        row.classList.add(position === 'inside' ? 'drop-target' : 'drag-' + position);
+        if (position === 'inside' && row.nextElementSibling && !row.classList.contains('expanded')) {
+          if (!dragExpandTimer) dragExpandTimer = setTimeout(() => {
+            row.classList.add('expanded');
+            row.nextElementSibling.classList.add('open');
+            folderExpansion.set(row.dataset.folder, true);
+            dragExpandTimer = null;
+          }, 650);
+        } else {
+          clearTimeout(dragExpandTimer);
+          dragExpandTimer = null;
         }
       });
+      row.addEventListener('dragleave', (e) => {
+        if (row.contains(e.relatedTarget)) return;
+        clearDragMarks();
+        clearTimeout(dragExpandTimer);
+        dragExpandTimer = null;
+      });
+      row.addEventListener('drop', (e) => handleFolderDrop(e, row));
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const id = row.dataset.folder;
-        const folder = folderById(id);
-        if (!folder) return;
-          if (id === '__loose__') return;
-        openContextMenu(e.clientX, e.clientY, [
-          { label: '改名', run: () => renameFolderModal(id, folder.title) },
-          { label: hiddenFolderIds.has(id) ? '取消隐藏内容' : '隐藏内容', run: () => toggleFolderHidden(id) },
-          { label: '删除文件夹：释放内部网址', danger: true, run: () => deleteFolderReleaseModal(id) },
-          { label: '删除文件夹：连同内容删除', danger: true, run: () => deleteFolderWithContentModal(id) }
-        ]);
+        const items = folderMenuItems(row.dataset.folder);
+        if (items.length) openContextMenu(e.clientX, e.clientY, items);
       });
   });
 }
@@ -861,93 +867,250 @@ function allCountOf(f, counts) {
   return (counts.get(f.id) || 0) + f.children.reduce((sum, c) => sum + allCountOf(c, counts), 0);
 }
 
-async function getFolderNode(id) {
-  const nodes = await new Promise(resolve => chrome.bookmarks.get(id, resolve));
-  return nodes && nodes[0] ? nodes[0] : null;
+// 找到一个文件夹所属的“根目录”（直接挂在书签树根下的那一层的 id）
+async function getRootAncestorId(folderId) {
+  let id = folderId;
+  let guard = 0;
+  while (id && guard++ < 64) {
+    const nodes = await bookmarksCall('get', id);
+    const node = nodes && nodes[0];
+    if (!node) break;
+    if (rootFolderIds.has(node.id)) return node.id;
+    id = node.parentId;
+  }
+  return null;
+}
+
+// 回调 API 必须在回调内读取 lastError，否则拖拽失败会被误报为成功。
+function bookmarksCall(method, ...args) {
+  return new Promise((resolve, reject) => {
+    chrome.bookmarks[method](...args, result => {
+      const error = chrome.runtime?.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(result);
+    });
+  });
+}
+
+function clearDragMarks(except) {
+  $$('.tree-row, .bookmark-item').forEach(el => {
+    if (el !== except) el.classList.remove('drop-target', 'drag-over', 'drag-before', 'drag-after');
+  });
+}
+
+function clearDragState() {
+  draggedFolderId = null;
+  draggedBookmarkId = null;
+  clearTimeout(dragExpandTimer);
+  dragExpandTimer = null;
+  clearDragMarks();
+  $$('.tree-row.dragging, .bookmark-item.dragging').forEach(el => el.classList.remove('dragging'));
+}
+
+function folderDropPosition(e, row) {
+  if (row.dataset.folder === '__loose__' || rootFolderIds.has(row.dataset.folder)) return 'inside';
+  const rect = row.getBoundingClientRect();
+  const ratio = (e.clientY - rect.top) / rect.height;
+  return ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
+}
+
+function canDropOnFolder(sourceId, targetId, position) {
+  if (!sourceId || sourceId === targetId || rootFolderIds.has(sourceId)) return false;
+  if (sourceId === '__loose__') return false;
+  if (targetId === '__loose__') return true;
+  if (!folderById(targetId)) return false;
+  if (rootFolderIds.has(targetId) && position !== 'inside') return false;
+  return !collectFolderIds(sourceId).includes(targetId);
+}
+
+async function moveRelative(sourceId, targetId, before) {
+  const [target] = await bookmarksCall('get', targetId);
+  if (!target?.parentId) throw new Error('目标已不存在，请刷新后重试');
+  const siblings = await bookmarksCall('getChildren', target.parentId);
+  const index = siblings.findIndex(node => node.id === targetId);
+  if (index < 0) throw new Error('目标已不存在，请刷新后重试');
+  // Chrome 的 index 使用移动前的完整子项顺序（包括文件夹）。
+  await bookmarksCall('move', sourceId, { parentId: target.parentId, index: index + (before ? 0 : 1) });
+}
+
+function reportActionError(error, title = '操作失败') {
+  console.error(error);
+  showConfirmModal(title, error.message || '操作未完成，请刷新后重试', null);
+}
+
+function reportMoveError(error) {
+  reportActionError(error, '移动失败');
 }
 
 async function handleFolderDrop(e, targetRow) {
-  const sourceId = draggedFolderId;
+  e.preventDefault();
+  e.stopPropagation();
+  const sourceId = draggedFolderId || draggedBookmarkId;
   const targetId = targetRow.dataset.folder;
-  if (!sourceId || !targetId || sourceId === targetId) return;
-
-  const source = await getFolderNode(sourceId);
-  const target = await getFolderNode(targetId);
-  if (!source || !target) return;
-
-  // 禁止拖入自己的子孙目录
-  const sourceDesc = collectFolderIds(sourceId);
-  if (sourceDesc.includes(targetId)) return;
-
-  const targetParentId = target.parentId;
-  if (!targetParentId) return;
-
-  const children = await new Promise(resolve => chrome.bookmarks.getChildren(targetParentId, resolve));
-  const targetIndex = children.findIndex(n => n.id === targetId);
-  if (targetIndex < 0) return;
-
-  const rect = targetRow.getBoundingClientRect();
-  const before = e.clientY < rect.top + rect.height / 2;
-  let index = before ? targetIndex : targetIndex + 1;
-
-  await new Promise(resolve => chrome.bookmarks.move(sourceId, { parentId: targetParentId, index }, resolve));
-  draggedFolderId = null;
-  await loadChromeBookmarks();
+  const position = folderDropPosition(e, targetRow);
+  const allowed = canDropOnFolder(sourceId, targetId, position);
+  clearDragState();
+  if (!allowed) return;
+  try {
+    if (targetId === '__loose__') {
+      const [source] = await bookmarksCall('get', sourceId);
+      const rootId = await getRootAncestorId(source.parentId);
+      if (!rootId) throw new Error('找不到所属的收藏夹根目录');
+      await bookmarksCall('move', sourceId, { parentId: rootId });
+    } else if (position === 'inside') {
+      await bookmarksCall('move', sourceId, { parentId: targetId });
+      folderExpansion.set(targetId, true);
+    } else {
+      await moveRelative(sourceId, targetId, position === 'before');
+    }
+    await loadChromeBookmarks();
+  } catch (error) {
+    reportMoveError(error);
+  }
 }
 
-function renderBookmarkItem(b, useFolderBg) {
+function activateRowWithKeyboard(e) {
+  if (e.target !== e.currentTarget || !['Enter', ' '].includes(e.key)) return;
+  e.preventDefault();
+  const row = e.currentTarget;
+  const selector = row.dataset.folder ? `[data-folder="${CSS.escape(row.dataset.folder)}"]` : `[data-domain="${CSS.escape(row.dataset.domain)}"]`;
+  row.click();
+  document.querySelector(selector)?.focus();
+}
+
+function folderMenuItems(id) {
+  const folder = folderById(id);
+  if (!folder || id === '__loose__' || rootFolderIds.has(id)) return [];
+  return [
+    { label: '改名', run: () => renameFolderModal(id, folder.title) },
+    { label: hiddenFolderIds.has(id) ? '取消隐藏内容' : '隐藏内容', run: () => toggleFolderHidden(id) },
+    { label: '删除文件夹：释放内部网址', danger: true, run: () => deleteFolderReleaseModal(id) },
+    { label: '删除文件夹：连同内容删除', danger: true, run: () => deleteFolderWithContentModal(id) }
+  ];
+}
+
+function bookmarkMenuItems(b) {
+  return [
+    { label: '置顶', run: () => pinBookmark(b.id) },
+    { label: '改名', run: () => renameBookmarkModal(b.id, b.title) },
+    { label: '删除', danger: true, run: () => deleteBookmarkModal(b.id) }
+  ];
+}
+
+function bindRowMenu(row, getItems) {
+  const button = row.querySelector('.row-menu');
+  if (!button) return;
+  button.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideBookmarkTooltip();
+    const rect = button.getBoundingClientRect();
+    openContextMenu(rect.right, rect.bottom + 4, getItems());
+  });
+  button.addEventListener('mousedown', e => e.stopPropagation());
+}
+
+let bookmarkTooltipTimer;
+function hideBookmarkTooltip() {
+  clearTimeout(bookmarkTooltipTimer);
+  const tooltip = $('#bookmarkTooltip');
+  if (tooltip) tooltip.hidden = true;
+}
+
+function showBookmarkTooltip(link, b) {
+  const tooltip = $('#bookmarkTooltip');
+  if (!tooltip) return;
+  tooltip.textContent = [b.title || b.url, b.url, b.folderPath || '零散'].join('\n');
+  tooltip.hidden = false;
+  const rect = link.getBoundingClientRect();
+  tooltip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - tooltip.offsetWidth - 8)) + 'px';
+  const top = rect.bottom + 6;
+  tooltip.style.top = (top + tooltip.offsetHeight < window.innerHeight - 8 ? top : Math.max(8, rect.top - tooltip.offsetHeight - 6)) + 'px';
+}
+
+function renderBookmarkItem(b) {
   const color = colorFor(b.domain);
-  let rowStyle = '';
-  if (useFolderBg) {
-    const folderName = b.folderPath ? b.folderPath.split(' / ').pop() : '';
-    const fc = folderName && !DEFAULT_FOLDER_NAMES.has(folderName) ? folderColor(folderName) : null;
-    rowStyle = fc
-      ? `background:${fc.bg}; border-left:3px solid ${fc.border};`
-      : 'background:var(--surface-2); border-left:3px solid var(--border);';
-  }
-  return `<a class="domain-item bookmark-item" href="${b.url}" target="_blank" rel="noopener" style="${rowStyle}" draggable="true" data-id="${b.id}">
-    <img class="domain-icon favicon-img" src="${faviconUrl(b.url)}" alt="" draggable="false" data-letter="${(b.title || b.host || '?')[0].toUpperCase()}" data-color="${color}">
-    <span class="domain-info">
-      <span class="domain-name">${b.title}</span>
-    </span>
-  </a>`;
+  const title = b.title || b.url;
+  return `<div class="domain-item bookmark-item" draggable="true" data-id="${b.id}">
+    <a class="bookmark-link" href="${escapeHtml(b.url)}" target="_blank" rel="noopener" aria-label="${escapeHtml(title + ' · ' + (b.host || b.domain || ''))}" aria-describedby="bookmarkTooltip" draggable="false">
+      <img class="domain-icon favicon-img" src="${faviconUrl(b.url)}" alt="" draggable="false" data-letter="${escapeHtml((title || b.host || '?')[0].toUpperCase())}" data-color="${color}">
+      <span class="domain-info"><span class="domain-name">${escapeHtml(title)}</span></span>
+    </a>
+    <button class="row-menu" type="button" aria-label="管理书签 ${escapeHtml(title)}" title="管理书签" draggable="false">⋯</button>
+  </div>`;
 }
 
 function bindInnerList(list) {
   bindFaviconFallback(list);
   bindBookmarkDrag(list);
   list.querySelectorAll('.bookmark-item').forEach(item => {
-    item.addEventListener('contextmenu', (e) => {
+    const b = allBookmarks.find(x => x.id === item.dataset.id);
+    if (!b) return;
+    bindRowMenu(item, () => bookmarkMenuItems(b));
+    item.addEventListener('contextmenu', e => {
       e.preventDefault();
       e.stopPropagation();
-      const b = allBookmarks.find(x => x.id === item.dataset.id);
-      if (!b) return;
-      openContextMenu(e.clientX, e.clientY, [
-        { label: '置顶', run: () => pinBookmark(b.id) },
-        { label: '改名', run: () => renameBookmarkModal(b.id, b.title) },
-        { label: '删除', danger: true, run: () => deleteBookmarkModal(b.id) }
-      ]);
+      hideBookmarkTooltip();
+      openContextMenu(e.clientX, e.clientY, bookmarkMenuItems(b));
     });
-    item.addEventListener('click', () => {
-      state.filterType = 'all';
-      state.filterKey = 'all';
-      renderDomains();
-      renderFolders();
-      renderContent();
+    const link = item.querySelector('.bookmark-link');
+    link.addEventListener('mouseenter', () => {
+      hideBookmarkTooltip();
+      bookmarkTooltipTimer = setTimeout(() => showBookmarkTooltip(link, b), 450);
     });
+    link.addEventListener('mouseleave', hideBookmarkTooltip);
+    link.addEventListener('focus', () => { hideBookmarkTooltip(); showBookmarkTooltip(link, b); });
+    link.addEventListener('blur', hideBookmarkTooltip);
+    link.addEventListener('click', hideBookmarkTooltip);
+    item.addEventListener('dragstart', hideBookmarkTooltip);
   });
+}
+
+function renderViewStatus(count) {
+  let label = '全部书签';
+  if (state.filterType === 'domain') label = customNameFor(state.filterKey) || state.filterKey;
+  if (state.filterType === 'folder') label = folderById(state.filterKey)?.title || '收藏夹';
+  const labelEl = $('#filterLabel');
+  if (labelEl) { labelEl.textContent = label; labelEl.title = label; }
+  const countEl = $('#resultCount');
+  if (countEl) countEl.textContent = `${count} ${state.search.trim() ? '个匹配' : '个书签'}`;
+  const clearFilter = $('#clearFilterBtn');
+  if (clearFilter) clearFilter.hidden = state.filterType === 'all';
+  const clearSearch = $('#clearSearchBtn');
+  if (clearSearch) clearSearch.hidden = !state.search;
+  const allBtn = $('#allBtn');
+  if (allBtn) {
+    const active = state.filterType === 'all' && !state.search;
+    allBtn.classList.toggle('active', active);
+    allBtn.setAttribute('aria-pressed', active);
+  }
+}
+
+function clearFilters(clearSearch = false) {
+  state.filterType = 'all';
+  state.filterKey = 'all';
+  if (clearSearch) { state.search = ''; $('#searchInput').value = ''; }
+  renderDomains();
+  renderFolders();
+  renderContent();
 }
 
 function groupByFolder(bookmarks) {
   const map = new Map();
+  const loose = { id: '__loose__', items: [] };
   for (const b of bookmarks) {
+    if (isLooseBookmark(b)) {
+      loose.items.push(b);
+      continue;
+    }
     if (!map.has(b.folderId)) map.set(b.folderId, { id: b.folderId, items: [] });
     map.get(b.folderId).items.push(b);
   }
-  return [...map.values()];
+  return [...(loose.items.length ? [loose] : []), ...map.values()];
 }
 
 function renderContent() {
+  hideBookmarkTooltip();
   const filter = { type: state.filterType, key: state.filterKey };
   let base = allBookmarks.filter(b => isMatch(b, filter));
   if (state.filterType === 'all') {
@@ -956,6 +1119,7 @@ function renderContent() {
     base = base.filter(b => !hiddenSet.has(b.folderId));
   }
   const list = $('#bookmarkList');
+  renderViewStatus(base.length);
 
   if (!base.length) {
     list.className = 'bookmark-list';
@@ -968,27 +1132,39 @@ function renderContent() {
     list.className = 'bookmark-list grouped';
     list.innerHTML = groups.map(g => {
       const items = sorted(g.items);
-      const path = g.items[0].folderPath || '';
+      const path = g.id === '__loose__' ? '零散' : (g.items[0].folderPath || '');
       const leaf = path ? path.split(' / ').pop() : '';
       const fc = leaf && !DEFAULT_FOLDER_NAMES.has(leaf) ? folderColor(leaf) : null;
-      return `<section class="folder-group ${fc ? '' : 'neutral'}" style="--g-text:${fc ? fc.text : 'var(--text)'};--g-hover:${fc ? fc.hover : 'var(--border)'};--g-head-bg:${fc ? fc.bg : 'var(--surface-2)'};background:${fc ? fc.bg : 'var(--surface-2)'};border-left:3px solid ${fc ? fc.border : 'var(--border-strong)'};">
+      return `<section class="folder-group ${fc ? '' : 'neutral'}" style="--group-color:${fc ? fc.border : 'var(--border-strong)'};">
         <header class="folder-group-head">
           ${folderIcon(fc, 'fg-icon')}
-          <span class="fg-title">${path || leaf || '未分类'}</span>
+          <span class="fg-title">${escapeHtml(path || leaf || '未分类')}</span>
           <span class="fg-count">${items.length}</span>
         </header>
-        <div class="bookmark-grid">${items.map(b => renderBookmarkItem(b, false)).join('')}</div>
+        <div class="bookmark-grid">${items.map(b => renderBookmarkItem(b)).join('')}</div>
       </section>`;
     }).join('');
     updateAllColumns();
     bindInnerList(list);
   } else {
-    const items = sorted(base);
-    list.className = 'bookmark-list';
-    list.innerHTML = items.map(b => renderBookmarkItem(b, true)).join('');
-    updateAllColumns();
-    bindInnerList(list);
+    if (state.filterType === 'folder' && state.filterKey === '__loose__') {
+      renderLooseView(list, base);
+    } else {
+      const items = sorted(base);
+      list.className = 'bookmark-list';
+      list.innerHTML = items.map(b => renderBookmarkItem(b)).join('');
+      updateAllColumns();
+      bindInnerList(list);
+    }
   }
+}
+
+// 零散与其他筛选使用相同的搜索、排序与书签交互。
+function renderLooseView(list, base) {
+  list.className = 'bookmark-list';
+  list.innerHTML = sorted(base).map(b => renderBookmarkItem(b)).join('');
+  updateAllColumns();
+  bindInnerList(list);
 }
 
 // ===== 顶栏事件 =====
@@ -1014,23 +1190,39 @@ $('#sortSelect').addEventListener('change', (e) => {
     renderContent();
   });
 
-  $('#allBtn').addEventListener('click', () => {
-    state.filterType = 'all';
-    state.filterKey = 'all';
-    renderDomains();
-    renderFolders();
+  $('#allBtn').addEventListener('click', () => clearFilters(true));
+  $('#clearFilterBtn').addEventListener('click', () => clearFilters());
+  $('#clearSearchBtn').addEventListener('click', () => {
+    state.search = '';
+    $('#searchInput').value = '';
     renderContent();
+    $('#searchInput').focus();
   });
+  $('#addFolderBtn').addEventListener('click', () => addFolder());
+  document.addEventListener('keydown', e => {
+    const editing = e.target.matches('input, textarea, select, [contenteditable="true"]');
+    if ((e.key === '/' && !editing) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
+      e.preventDefault();
+      $('#searchInput').focus();
+    }
+    if (e.key === 'Escape') {
+      hideContextMenu(true);
+      hideBookmarkTooltip();
+      $('#settingsPanel').hidden = true;
+      $('#settingsBtn').setAttribute('aria-expanded', 'false');
+    }
+  });
+  $('#bookmarkList').addEventListener('scroll', hideBookmarkTooltip);
 
   $('#refreshBtn').addEventListener('click', () => {
-    loadSettings().then(() => loadChromeBookmarks());
+    loadChromeBookmarks().catch(reportActionError);
   });
 
   $('#appModalOk').addEventListener('click', () => {
     const cb = modalOnOk;
     const value = $('#appModalInput').value;
     hideModal();
-    if (cb) cb(value);
+    if (cb) Promise.resolve().then(() => cb(value)).catch(reportActionError);
   });
 
   $('#appModalCancel').addEventListener('click', hideModal);
@@ -1055,20 +1247,10 @@ $('#sortSelect').addEventListener('change', (e) => {
       ]);
     });
   }
-  if (folderPanelEl) {
-    folderPanelEl.addEventListener('click', (e) => {
-      if (e.target.closest('.tree-row')) return;
-      state.filterType = 'all';
-      state.filterKey = 'all';
-      renderDomains();
-      renderFolders();
-      renderContent();
-    });
-  }
-
   $('#settingsBtn').addEventListener('click', () => {
     const panel = $('#settingsPanel');
     panel.hidden = !panel.hidden;
+    $('#settingsBtn').setAttribute('aria-expanded', !panel.hidden);
   });
 
   $('#hideDomainIcons').addEventListener('change', async (e) => {
@@ -1100,7 +1282,13 @@ $('#sortSelect').addEventListener('change', (e) => {
     });
   }
 
-window.addEventListener('resize', updateAllColumns);
+document.addEventListener('click', e => {
+  if (!e.target.closest('#settingsPanel, #settingsBtn')) {
+    $('#settingsPanel').hidden = true;
+    $('#settingsBtn').setAttribute('aria-expanded', 'false');
+  }
+});
+window.addEventListener('resize', () => { hideBookmarkTooltip(); updateAllColumns(); });
 
 // ===== 拖动调整宽度 =====
 function enableResize(panel, resizer) {
@@ -1142,4 +1330,4 @@ enableResize(
 );
 
 // ===== 初始化 =====
-loadChromeBookmarks();
+loadChromeBookmarks().catch(reportActionError);
