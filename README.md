@@ -1,10 +1,24 @@
 # bookmark-beautify / 收藏夹美化
 
+当前版本 / Current version：**v0.1.2** · [更新记录 / Changelog](./CHANGELOG.md)
+
 A lightweight **Chrome extension (Manifest V3)** that turns your New Tab page into a clean, beautiful view of your **real bookmarks** — aggregated by domain, organized by folder tree, with search, sort, drag-and-drop reordering and one-click management. Vanilla JS, no build step, no dependencies.
 
 一款把 Chrome 新标签页变成美观书签管理界面的轻量扩展（Manifest V3）：读取**浏览器真实收藏夹**，按域名聚合、按文件夹树展示，支持搜索、排序、拖拽整理与一键管理。纯原生 JS，无需构建、无第三方依赖。
 
 ---
+
+## v0.1.2 更新 / What's new
+
+- 更清爽的紧凑三栏界面，保留书签行高与桌面网格密度。
+  A cleaner compact layout with the same bookmark row height and desktop grid density.
+- 当前筛选范围与匹配数量、独立清除入口、悬停操作菜单和搜索快捷键。
+  Scope and result counts, separate clearing controls, hover action menus, and search shortcuts.
+- 修复零散书签范围、嵌套拖拽、混合排序和删除撤销；补充隐私说明并清理旧演示页。
+  Fixes for loose bookmarks, nested dragging, mixed ordering, and deletion undo; privacy documentation and legacy-page cleanup.
+
+完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
+See [CHANGELOG.md](./CHANGELOG.md) for the full release notes.
 
 ## Features / 功能
 
@@ -83,6 +97,7 @@ bookmark-beautify/
 ├─ background.js            # Service worker — opens the page when the toolbar icon is clicked
 ├─ tests/                   # Regression tests with synthetic fixtures
 ├─ CONTRIBUTING.md          # Contributing guide
+├─ CHANGELOG.md             # Version history
 ├─ README.md
 ├─ LICENSE                  # MIT
 └─ .github/                 # Issue & PR templates
