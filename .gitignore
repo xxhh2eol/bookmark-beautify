@@ -25,3 +25,7 @@ PROJECT_REVIEW.md
 # Browser bookmark exports (never commit real browsing data)
 bookmarks*.html
 bookmarks*.json
+
+# Python release tooling caches
+__pycache__/
+*.py[cod]

@@ -75,6 +75,11 @@ See [CHANGELOG.md](./CHANGELOG.md) for the full release notes.
 - **Responsive** — keeps the three panels side by side; compact navigation and a wrapping toolbar adapt to narrow windows.
   **响应式** —— 保留三栏并排，窄窗口下收紧侧栏控件并折行顶栏。
 
+## Download / 下载
+
+从 [Releases](https://github.com/xxhh2eol/bookmark-beautify/releases) 下载 `bookmark-beautify-vX.Y.Z.zip` 并解压，再按下面步骤加载解压后的目录。
+Download and extract the extension ZIP from [Releases](https://github.com/xxhh2eol/bookmark-beautify/releases), then load the extracted folder as described below.
+
 ## Install (load unpacked) / 安装（加载已解压的扩展）
 
 1. Open `chrome://extensions` in Chrome.
@@ -96,11 +101,12 @@ bookmark-beautify/
 ├─ app.css                  # Styles
 ├─ background.js            # Service worker — opens the page when the toolbar icon is clicked
 ├─ tests/                   # Regression tests with synthetic fixtures
+├─ scripts/package_release.py # Version validation, ZIP packaging and release notes
 ├─ CONTRIBUTING.md          # Contributing guide
 ├─ CHANGELOG.md             # Version history
 ├─ README.md
 ├─ LICENSE                  # MIT
-└─ .github/                 # Issue & PR templates
+└─ .github/                 # Release workflow, issue & PR templates
 ```
 
 ## Tech stack / 技术栈
@@ -127,7 +133,8 @@ No build step or runtime dependencies are required. Run the regression tests wit
 无需构建步骤或运行时第三方依赖。使用 Node.js 18 或更新版本运行回归检查：
 
 ```sh
-node --test tests/bookmarks.test.cjs
+node --test tests/*.test.cjs
+python3 -m unittest discover -s tests -p 'test_release.py' -v
 node --check app.js
 node --check background.js
 git diff --check
@@ -136,8 +143,22 @@ git diff --check
 Tests mock the browser boundary and do not change real bookmarks. Also verify dragging, menus, and undo in an unpacked extension before releasing. Bookmark edits affect the browser's real collection; backing up bookmarks before extensive reorganization is recommended.
 测试模拟浏览器接口，不会修改真实书签。发布前还需在已解压扩展中核对拖拽、菜单和撤销。扩展的管理操作会修改真实收藏夹，建议在批量整理前备份书签。
 
+Release-tooling checks also require Python 3.9 or later; Python is not required to use the extension.
+发布工具检查另需 Python 3.9 或更新版本；使用扩展不需要 Python。
+
 Known limits: domain aggregation uses a small public-suffix list; external bookmark changes require a page refresh; multi-step delete/undo operations are not transactions.
 已知限制：域名聚合使用有限的公共后缀表；外部书签变更需刷新页面；多步骤删除与撤销不具备事务回滚能力。
+
+## Automated releases / 自动发布
+
+推送 `vMAJOR.MINOR.PATCH` 标签会触发 [Release extension](https://github.com/xxhh2eol/bookmark-beautify/actions/workflows/release.yml)：核对标签与 `manifest.json` 版本、运行回归检查、从 `CHANGELOG.md` 提取对应版本记录，再创建 GitHub Release 并上传 ZIP。只打包运行文件和许可证，不包含测试、开发记录或个人数据。
+Pushing a version tag validates its manifest version, runs regression checks, extracts the matching changelog section, and publishes a GitHub Release with the extension ZIP. The archive includes only runtime files and the license.
+
+补发已有标签时，在 Actions → Release extension → Run workflow 中选择 `main`，填写已有标签。已发布的同名 ZIP 不会被覆盖，失败后留下的草稿可重试。发布流程使用自动提供的 `GITHUB_TOKEN`，无需额外配置个人 token。
+To backfill an existing tag, run the workflow from `main` and enter the tag. Published assets are preserved, and incomplete drafts can be retried. The workflow uses the built-in `GITHUB_TOKEN`.
+
+维护者的版本准备和推送步骤见 [CONTRIBUTING.md](./CONTRIBUTING.md#release--发布版本)。
+See [CONTRIBUTING.md](./CONTRIBUTING.md#release--发布版本) for maintainer release steps.
 
 ## Contributing / 贡献
 

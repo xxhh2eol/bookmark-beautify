@@ -23,11 +23,12 @@ Thank you for your interest in contributing to **bookmark-beautify**!
 
 ## Validation / 验证
 
-Use Node.js 18 or later for automated checks (Node.js is not needed to use the extension):
-自动检查需要 Node.js 18 或更新版本（使用扩展本身不需要 Node.js）：
+Use Node.js 18 or later and Python 3.9 or later for automated checks (neither is needed to use the extension):
+自动检查需要 Node.js 18 或更新版本及 Python 3.9 或更新版本（使用扩展本身不需要这两个环境）：
 
 ```sh
-node --test tests/bookmarks.test.cjs
+node --test tests/*.test.cjs
+python3 -m unittest discover -s tests -p 'test_release.py' -v
 node --check app.js
 node --check background.js
 git diff --check
@@ -58,3 +59,24 @@ Load the unpacked extension to verify real browser interaction. Use synthetic bo
 ## Code of Conduct / 行为准则
 
 请友善、平等地交流，尊重每位贡献者。提交内容需遵守本项目采用的 [MIT License](./LICENSE)。
+
+
+## Release / 发布版本
+
+1. 更新 `manifest.json`、README 的版本号，并在 `CHANGELOG.md` 中添加 `## [X.Y.Z] - YYYY-MM-DD` 及该版本内容。
+   Update the manifest and README version, and add a versioned changelog section.
+2. 运行上述检查；也可用 `python3 scripts/package_release.py --tag vX.Y.Z` 在本地验证安装包。输出位于已忽略的 `release/` 目录。
+   Run the checks and optionally validate the package locally. Generated files stay in the ignored `release/` directory.
+3. 提交改动后，创建版本标签并一起推送当前提交到远端 `main`。以下命令中的 `vX.Y.Z` 需替换为实际版本：
+   Commit changes, create an annotated tag, and push the current commit and tag together. Replace `vX.Y.Z` below with the actual version:
+
+   ```sh
+   git tag -a vX.Y.Z -m 'Release vX.Y.Z'
+   git push --atomic origin HEAD:main refs/tags/vX.Y.Z
+   ```
+
+4. 在 Actions 中确认 Release extension 运行成功，随后检查 Releases 中的更新记录和 `bookmark-beautify-vX.Y.Z.zip`。标签、manifest 和更新记录不一致会中止发布。
+   Confirm the workflow succeeds and verify the release notes and ZIP. Tag/manifest/changelog mismatches stop publication.
+
+补发已有标签时，手动运行 `release.yml`，选择 `main` 并填写已有标签。无需移动、删除或重新推送标签。已发布的安装包不会被覆盖。
+To backfill an existing tag, manually dispatch `release.yml` from `main` with that tag. Existing tags and published packages are preserved.

@@ -1,5 +1,12 @@
 # 更新记录 / Changelog
 
+## 未发布 / Unreleased
+
+- 新增 GitHub Actions 自动发布：版本标签校验、回归检查、运行文件打包、对应更新记录提取与 Release 发布。
+  Added GitHub Actions release automation with version validation, regression checks, runtime-only packaging, and changelog-based release notes.
+- 支持手动补发已有标签及失败草稿重试，保护已发布的安装包。
+  Added existing-tag backfills and incomplete-draft retries while preserving published assets.
+
 ## [0.1.2] - 2026-10-01
 
 ### 新增 / Added
